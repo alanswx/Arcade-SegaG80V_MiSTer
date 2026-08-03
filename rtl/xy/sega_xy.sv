@@ -163,6 +163,8 @@ module sega_xy #(
 	                             : (curx + {11'd0, xsum[8]});
 	wire [11:0] cury_next = yneg ? (cury - {11'd0, ysum[8]})
 	                             : (cury + {11'd0, ysum[8]});
+	wire [10:0] cx_next = clip_axis(curx_next);
+	wire [10:0] cy_next = clip_axis(cury_next);
 
 	// 25LS14 at U8: length x scale, keep the 9 MSBs
 	wire [15:0] len_prod = {8'd0, vram_data} * {8'd0, scale};
@@ -344,12 +346,11 @@ module sega_xy #(
 						dda_ran   <= 1'b1;
 
 						// emit the position *after* this step
-						out_x      <= clip_axis(curx_next)[9:0];
-						out_y      <= clip_axis(cury_next)[9:0];
+						out_x      <= cx_next[9:0];
+						out_y      <= cy_next[9:0];
 						out_colour <= attrib[6:1];
 						out_beam   <= beam_ena
-						            & ~(clip_axis(curx_next)[10]
-						              | clip_axis(cury_next)[10]);
+						            & ~(cx_next[10] | cy_next[10]);
 						out_valid  <= 1'b1;
 					end
 				end

@@ -2,17 +2,16 @@
 // Final CRT presentation stage.
 // written 2026 by Videodr0me
 //
-// This stage runs after the primary/bloom/halo/phosphor composite. It is a
-// late presentation transform only; it intentionally does not feed back into
-// bloom, halo, RLE compression, or cache behavior.
+// This stage runs after primary, bloom, halo, and phosphor processing.
+// Its settings affect only the final video output.
 //
 // Pipeline:
 //   C1: optional Amplifone-to-Rec.709 color-space lift, R/G += floor(B/7)
 //   C2: presentation color transform
 //   C3: orientation-aware slot mask with bright-pixel gap closure
-//   C4: final VGA-facing packet register
+//   C4: final output register
 //
-// RGB and sync/blank always travel as one packet.
+// RGB, sync, and blanking remain aligned through every stage.
 // ============================================================================
 
 module vfb_final_present (
@@ -41,14 +40,25 @@ module vfb_final_present (
 	output logic        VGA_HBLANK_OUT,
 	output logic        VGA_VBLANK_OUT
 );
-	localparam logic [2:0] COLOR_WHITE      = 3'd0;
-	localparam logic [2:0] COLOR_RED        = 3'd1;
-	localparam logic [2:0] COLOR_LUNAR      = 3'd2;
-	localparam logic [2:0] COLOR_DELUXE     = 3'd3;
-	localparam logic [2:0] COLOR_CYAN       = 3'd4;
-	localparam logic [2:0] COLOR_PURPLE     = 3'd5;
-	localparam logic [2:0] COLOR_YELLOW     = 3'd6;
-	localparam logic [2:0] COLOR_PURPLE_ALT = 3'd7;
+	localparam logic [2:0] CHANNEL_ORIGINAL = 3'd0;
+	localparam logic [2:0] CHANNEL_RBG      = 3'd1;
+	localparam logic [2:0] CHANNEL_GRB      = 3'd2;
+	localparam logic [2:0] CHANNEL_GBR      = 3'd3;
+	localparam logic [2:0] CHANNEL_BRG      = 3'd4;
+	localparam logic [2:0] CHANNEL_BGR      = 3'd5;
+	localparam logic [2:0] CHANNEL_BW       = 3'd6;
+	localparam logic [2:0] CHANNEL_NEGATIVE = 3'd7;
+
+	logic       color_space_amp709_q = 1'b0;
+	logic [2:0] presentation_color_q = CHANNEL_ORIGINAL;
+	logic       slot_mask_enable_q = 1'b0;
+	logic       slot_mask_rows_q = 1'b0;
+	always_ff @(posedge clk_sys) begin
+		color_space_amp709_q <= color_space_amp709;
+		presentation_color_q <= presentation_color;
+		slot_mask_enable_q <= slot_mask_enable;
+		slot_mask_rows_q <= slot_mask_rows;
+	end
 
 	function automatic [5:0] div7_u8(input logic [7:0] value);
 		logic [16:0] product_293;
@@ -85,31 +95,6 @@ module vfb_final_present (
 			         {3'd0, channel} +
 			         11'd4;
 			scale_14_16 = scaled[10:3];
-		end
-	endfunction
-
-	function automatic [7:0] scale_deluxe_red(input logic [7:0] channel);
-		logic [16:0] scaled;
-		begin
-			// 273/512 produces the same rounded 8-bit values as
-			// MAME's Asteroids Deluxe 0.5333 red multiplier.
-			scaled =
-				({9'd0, channel} << 8) +
-				({9'd0, channel} << 4) +
-				{9'd0, channel} +
-				17'd256;
-			scale_deluxe_red = scaled[16:9];
-		end
-	endfunction
-
-	function automatic [7:0] scale_lunar_blue(input logic [7:0] channel);
-		logic [8:0] scaled;
-		logic [8:0] quotient;
-		begin
-			// The 519 nm comparison target is RGB(0, 255, 170).
-			scaled = {channel, 1'b0} + 9'd1;
-			quotient = scaled / 9'd3;
-			scale_lunar_blue = quotient[7:0];
 		end
 	endfunction
 
@@ -173,7 +158,7 @@ module vfb_final_present (
 				cs_r <= 8'd0;
 				cs_g <= 8'd0;
 				cs_b <= 8'd0;
-			end else if (color_space_amp709) begin
+			end else if (color_space_amp709_q) begin
 				blue_lift = div7_u8(VGA_B_IN);
 				cs_r <= clamp_add_lift(VGA_R_IN, blue_lift);
 				cs_g <= clamp_add_lift(VGA_G_IN, blue_lift);
@@ -196,28 +181,29 @@ module vfb_final_present (
 			ch_hblank <= 1'b1;
 			ch_vblank <= 1'b1;
 		end else if (ce_pix) begin
+			logic [9:0] grey_sum;
+			logic [7:0] grey;
+
 			ch_hs <= cs_hs;
 			ch_vs <= cs_vs;
 			ch_hblank <= cs_hblank;
 			ch_vblank <= cs_vblank;
 
-			case (presentation_color)
-				COLOR_WHITE: begin ch_r <= cs_r; ch_g <= cs_g; ch_b <= cs_b; end
-				COLOR_RED: begin ch_r <= cs_r; ch_g <= 8'd0; ch_b <= 8'd0; end
-				COLOR_LUNAR: begin
-					ch_r <= 8'd0;
-					ch_g <= cs_g;
-					ch_b <= scale_lunar_blue(cs_b);
-				end
-				COLOR_DELUXE: begin
-					ch_r <= scale_deluxe_red(cs_r);
-					ch_g <= cs_g;
-					ch_b <= cs_b;
-				end
-				COLOR_CYAN: begin ch_r <= 8'd0; ch_g <= cs_g; ch_b <= cs_b; end
-				COLOR_PURPLE,
-				COLOR_PURPLE_ALT: begin ch_r <= cs_r; ch_g <= 8'd0; ch_b <= cs_b; end
-				COLOR_YELLOW: begin ch_r <= cs_r; ch_g <= cs_g; ch_b <= 8'd0; end
+			grey_sum = {2'd0, cs_r} +
+			           {1'd0, cs_g, 1'b0} +
+			           {2'd0, cs_b};
+			grey = grey_sum[9:2];
+
+			case (presentation_color_q)
+				CHANNEL_ORIGINAL: begin ch_r <= cs_r; ch_g <= cs_g; ch_b <= cs_b; end
+				CHANNEL_RBG:      begin ch_r <= cs_r; ch_g <= cs_b; ch_b <= cs_g; end
+				CHANNEL_GRB:      begin ch_r <= cs_g; ch_g <= cs_r; ch_b <= cs_b; end
+				CHANNEL_GBR:      begin ch_r <= cs_g; ch_g <= cs_b; ch_b <= cs_r; end
+				CHANNEL_BRG:      begin ch_r <= cs_b; ch_g <= cs_r; ch_b <= cs_g; end
+				CHANNEL_BGR:      begin ch_r <= cs_b; ch_g <= cs_g; ch_b <= cs_r; end
+				CHANNEL_BW:       begin ch_r <= grey; ch_g <= grey; ch_b <= grey; end
+				CHANNEL_NEGATIVE: begin ch_r <= ~cs_r; ch_g <= ~cs_g; ch_b <= ~cs_b; end
+				default:          begin ch_r <= cs_r; ch_g <= cs_g; ch_b <= cs_b; end
 			endcase
 		end
 	end
@@ -243,8 +229,8 @@ module vfb_final_present (
 			selected_hblank <= ch_hblank;
 			selected_vblank <= ch_vblank;
 
-			gap_position = slot_mask_enable &&
-			               (slot_mask_rows ? slot_row_parity :
+			gap_position = slot_mask_enable_q &&
+			               (slot_mask_rows_q ? slot_row_parity :
 			                                 slot_column_parity);
 			close_gap = (max3_u8(ch_r, ch_g, ch_b) >= 8'd200);
 

@@ -2,33 +2,35 @@
 // CRT profile resolver.
 // written 2026 by Videodr0me
 //
-// Turns the profile selector into the filter/readout option bits used by
-// vfb_top. Fixed profiles come from per-resolution tables; Custom 1 and
-// Custom 2 use their editable OSD setting banks.
+// Resolves the selected profile into the settings used by vfb_top.
+// Fixed profiles vary by resolution; Custom 1 and Custom 2 use their
+// editable OSD values.
 // ============================================================================
 
 module vfb_profile_resolver (
 	input  logic [2:0]  profile,
 	input  logic [11:0] fb_height,
-	input  logic        game_is_deluxe,
-	input  logic        game_is_lander,
 
 	input  logic [2:0]  off_dot_mode,
 	input  logic [1:0]  off_tonemapping,
 	input  logic [1:0]  off_inter_frame_decay,
 	input  logic [1:0]  off_intra_frame_decay,
-	input  logic [22:0] custom1_settings,
-	input  logic [22:0] custom2_settings,
+	input  logic [29:0] custom1_settings,
+	input  logic [29:0] custom2_settings,
 
 	output logic [2:0]  dot_mode,
 	output logic [1:0]  tonemapping,
 	output logic [2:0]  bloom_width,
 	output logic [2:0]  bloom_curve,
 	output logic [2:0]  halo_filter,
+	output logic [2:0]  halo_curve,
 	output logic [1:0]  halo_spread,
+	output logic [1:0]  halo_knee,
 	output logic [1:0]  inter_frame_decay,
 	output logic [1:0]  intra_frame_decay,
+	output logic        color_space,
 	output logic [2:0]  presentation_color,
+	output logic        slot_mask,
 	output logic        full_bypass
 );
 
@@ -81,7 +83,12 @@ module vfb_profile_resolver (
 	localparam logic [1:0] SPREAD_ORIGINAL = 2'd0;
 	localparam logic [1:0] SPREAD_WIDE1    = 2'd1;
 	localparam logic [1:0] SPREAD_WIDE2    = 2'd2;
-	localparam logic [1:0] SPREAD_WIDE3    = 2'd3;
+	localparam logic [1:0] SPREAD_FOCUS    = 2'd3;
+
+	localparam logic [1:0] KNEE_16  = 2'd0;
+	localparam logic [1:0] KNEE_32  = 2'd1;
+	localparam logic [1:0] KNEE_64  = 2'd2;
+	localparam logic [1:0] KNEE_24  = 2'd3;
 
 	localparam logic [1:0] INTER_OFF    = 2'd0;
 	localparam logic [1:0] INTER_SHORT  = 2'd1;
@@ -93,27 +100,32 @@ module vfb_profile_resolver (
 	localparam logic [1:0] INTRA_LUT_B = 2'd2;
 	localparam logic [1:0] INTRA_LUT_C = 2'd3;
 
-	localparam logic [2:0] COLOR_WHITE      = 3'd0;
-	localparam logic [2:0] COLOR_RED        = 3'd1;
-	localparam logic [2:0] COLOR_LUNAR      = 3'd2;
-	localparam logic [2:0] COLOR_DELUXE     = 3'd3;
-	localparam logic [2:0] COLOR_CYAN       = 3'd4;
-	localparam logic [2:0] COLOR_PURPLE     = 3'd5;
-	localparam logic [2:0] COLOR_YELLOW     = 3'd6;
-	localparam logic [2:0] COLOR_PURPLE_ALT = 3'd7;
+	localparam logic COLORSPACE_OFF    = 1'b0;
+	localparam logic COLORSPACE_AMP709 = 1'b1;
 
-	function automatic logic [22:0] pack_settings;
+	localparam logic [2:0] CHANNEL_ORIGINAL = 3'd0;
+
+	localparam logic SLOT_MASK_OFF = 1'b0;
+	localparam logic SLOT_MASK_ON  = 1'b1;
+
+	function automatic logic [29:0] pack_settings;
 		input logic [2:0] dot_i;
 		input logic [1:0] tone_i;
 		input logic [2:0] bloom_width_i;
 		input logic [2:0] bloom_curve_i;
 		input logic [2:0] halo_i;
+		input logic [2:0] halo_curve_i;
 		input logic [1:0] halo_spread_i;
+		input logic [1:0] halo_knee_i;
 		input logic [1:0] inter_decay_i;
 		input logic [1:0] intra_decay_i;
+		input logic       color_space_i;
 		input logic [2:0] color_i;
+		input logic       slot_mask_i;
 		begin
 			pack_settings = {
+				halo_knee_i,
+				halo_curve_i,
 				dot_i,
 				tone_i,
 				bloom_width_i,
@@ -122,109 +134,129 @@ module vfb_profile_resolver (
 				halo_spread_i,
 				inter_decay_i,
 				intra_decay_i,
-				color_i
+				color_space_i,
+				color_i,
+				slot_mask_i
 			};
 		end
 	endfunction
 
-	function automatic logic [22:0] fixed_480p;
+	function automatic logic [29:0] fixed_480p;
 		input logic [2:0] profile_i;
 		begin
 			case (profile_i)
 				PROFILE_TOUCH: fixed_480p = pack_settings(
-					DOT_2X, TONE_LINEAR1, BLOOM_THIN, CURVE_MILD_P,
-					HALO_033X, SPREAD_WIDE1, INTER_OFF, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_2X, TONE_OFF, BLOOM_THIN, CURVE_MODERATE,
+					HALO_025X, CURVE_MINIMAL, SPREAD_FOCUS, KNEE_64,
+					INTER_OFF, INTRA_OFF,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				PROFILE_TYPICAL: fixed_480p = pack_settings(
-					DOT_2X, TONE_LINEAR1, BLOOM_THIN, CURVE_MILD_P,
-					HALO_050X, SPREAD_WIDE3, INTER_SHORT, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_2X, TONE_OFF, BLOOM_THIN, CURVE_MOD_PLUS,
+					HALO_033X, CURVE_MINIMAL, SPREAD_ORIGINAL, KNEE_32,
+					INTER_OFF, INTRA_OFF,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				PROFILE_OVERDRIVEN: fixed_480p = pack_settings(
-					DOT_25X, TONE_LINEAR1, BLOOM_TIGHT, CURVE_MILD,
-					HALO_050X, SPREAD_WIDE3, INTER_MEDIUM, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_25X, TONE_OFF, BLOOM_TIGHT, CURVE_MILD_P,
+					HALO_033X, CURVE_MILD_P, SPREAD_WIDE1, KNEE_16,
+					INTER_SHORT, INTRA_OFF,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				PROFILE_NEON: fixed_480p = pack_settings(
-					DOT_3X, TONE_LINEAR2, BLOOM_SOFT, CURVE_MIN_PLUS,
-					HALO_075X, SPREAD_WIDE3, INTER_LONG, INTRA_LUT_A,
-					COLOR_WHITE);
+					DOT_3X, TONE_OFF, BLOOM_TIGHT, CURVE_MOD_PLUS,
+					HALO_033X, CURVE_MODERATE, SPREAD_WIDE1, KNEE_32,
+					INTER_MEDIUM, INTRA_LUT_A,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				PROFILE_STRANGER: fixed_480p = pack_settings(
-					DOT_3X, TONE_LINEAR2, BLOOM_SOFT, CURVE_MIN_PLUS,
-					HALO_125X, SPREAD_WIDE2, INTER_LONG, INTRA_LUT_A,
-					COLOR_PURPLE);
+					DOT_3X, TONE_LINEAR1, BLOOM_SOFT, CURVE_MILD_P,
+					HALO_050X, CURVE_MOD_PLUS, SPREAD_ORIGINAL, KNEE_24,
+					INTER_MEDIUM, INTRA_LUT_B,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				default: fixed_480p = pack_settings(
 					DOT_1X, TONE_LINEAR1, BLOOM_OFF, CURVE_MINIMAL,
-					HALO_OFF, SPREAD_ORIGINAL, INTER_OFF, INTRA_OFF,
-					COLOR_WHITE);
+					HALO_OFF, CURVE_MINIMAL, SPREAD_ORIGINAL, KNEE_16,
+					INTER_OFF, INTRA_OFF,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 			endcase
 		end
 	endfunction
 
-	function automatic logic [22:0] fixed_720p;
+	function automatic logic [29:0] fixed_720p;
 		input logic [2:0] profile_i;
 		begin
 			case (profile_i)
 				PROFILE_TOUCH: fixed_720p = pack_settings(
-					DOT_25X, TONE_LINEAR1, BLOOM_THIN, CURVE_MILD_P,
-					HALO_025X, SPREAD_WIDE1, INTER_OFF, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_25X, TONE_OFF, BLOOM_THIN, CURVE_STRONG,
+					HALO_025X, CURVE_MIN_PLUS, SPREAD_WIDE1, KNEE_32,
+					INTER_SHORT, INTRA_OFF,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				PROFILE_TYPICAL: fixed_720p = pack_settings(
-					DOT_3X, TONE_LINEAR1, BLOOM_TIGHT, CURVE_MILD,
-					HALO_033X, SPREAD_WIDE1, INTER_SHORT, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_3X, TONE_OFF, BLOOM_TIGHT, CURVE_MOD_PLUS,
+					HALO_033X, CURVE_MILD_P, SPREAD_WIDE1, KNEE_24,
+					INTER_SHORT, INTRA_OFF,
+					COLORSPACE_AMP709, CHANNEL_ORIGINAL, SLOT_MASK_ON);
 				PROFILE_OVERDRIVEN: fixed_720p = pack_settings(
-					DOT_3X, TONE_LINEAR1, BLOOM_NORMAL, CURVE_MINIMAL,
-					HALO_050X, SPREAD_ORIGINAL, INTER_MEDIUM, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_3X, TONE_LINEAR1, BLOOM_SOFT, CURVE_MILD,
+					HALO_033X, CURVE_MODERATE, SPREAD_WIDE1, KNEE_32,
+					INTER_SHORT, INTRA_OFF,
+					COLORSPACE_AMP709, CHANNEL_ORIGINAL, SLOT_MASK_ON);
 				PROFILE_NEON: fixed_720p = pack_settings(
-					DOT_3X, TONE_LINEAR1, BLOOM_BROAD, CURVE_MINIMAL,
-					HALO_150X, SPREAD_WIDE1, INTER_LONG, INTRA_LUT_A,
-					COLOR_WHITE);
+					DOT_3X, TONE_LINEAR1, BLOOM_NORMAL, CURVE_MILD,
+					HALO_050X, CURVE_MODERATE, SPREAD_WIDE1, KNEE_32,
+					INTER_MEDIUM, INTRA_LUT_A,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				PROFILE_STRANGER: fixed_720p = pack_settings(
-					DOT_3X, TONE_LINEAR2, BLOOM_BROAD, CURVE_MINIMAL,
-					HALO_150X, SPREAD_ORIGINAL, INTER_LONG, INTRA_LUT_A,
-					COLOR_PURPLE);
+					DOT_3X, TONE_BRIGHT, BLOOM_SOFT, CURVE_MOD_PLUS,
+					HALO_150X, CURVE_MODERATE, SPREAD_WIDE1, KNEE_16,
+					INTER_LONG, INTRA_LUT_B,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_ON);
 				default: fixed_720p = fixed_480p(profile_i);
 			endcase
 		end
 	endfunction
 
-	function automatic logic [22:0] fixed_1080p;
+	function automatic logic [29:0] fixed_1080p;
 		input logic [2:0] profile_i;
 		begin
 			case (profile_i)
 				PROFILE_TOUCH: fixed_1080p = pack_settings(
-					DOT_3X, TONE_LINEAR1, BLOOM_TIGHT, CURVE_MILD_P,
-					HALO_025X, SPREAD_WIDE1, INTER_OFF, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_3X, TONE_OFF, BLOOM_TIGHT, CURVE_MILD_P,
+					HALO_033X, CURVE_MIN_PLUS, SPREAD_FOCUS, KNEE_16,
+					INTER_SHORT, INTRA_OFF,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_OFF);
 				PROFILE_TYPICAL: fixed_1080p = pack_settings(
-					DOT_3X, TONE_LINEAR1, BLOOM_SOFT, CURVE_MILD,
-					HALO_033X, SPREAD_WIDE1, INTER_SHORT, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_3X, TONE_OFF, BLOOM_TIGHT, CURVE_MOD_PLUS,
+					HALO_050X, CURVE_MILD, SPREAD_WIDE2, KNEE_16,
+					INTER_SHORT, INTRA_OFF,
+					COLORSPACE_AMP709, CHANNEL_ORIGINAL, SLOT_MASK_ON);
 				PROFILE_OVERDRIVEN: fixed_1080p = pack_settings(
-					DOT_3X, TONE_LINEAR1, BLOOM_NORMAL, CURVE_MILD,
-					HALO_050X, SPREAD_WIDE1, INTER_MEDIUM, INTRA_OFF,
-					COLOR_WHITE);
+					DOT_3X, TONE_LINEAR1, BLOOM_SOFT, CURVE_MILD_P,
+					HALO_050X, CURVE_MILD, SPREAD_WIDE2, KNEE_24,
+					INTER_MEDIUM, INTRA_OFF,
+					COLORSPACE_AMP709, CHANNEL_ORIGINAL, SLOT_MASK_ON);
 				PROFILE_NEON: fixed_1080p = pack_settings(
-					DOT_3X, TONE_LINEAR2, BLOOM_BROAD, CURVE_MILD,
-					HALO_100X, SPREAD_WIDE2, INTER_LONG, INTRA_LUT_A,
-					COLOR_WHITE);
+					DOT_3X, TONE_LINEAR2, BLOOM_NORMAL, CURVE_MILD,
+					HALO_050X, CURVE_MOD_PLUS, SPREAD_WIDE1, KNEE_32,
+					INTER_MEDIUM, INTRA_LUT_A,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_ON);
 				PROFILE_STRANGER: fixed_1080p = pack_settings(
-					DOT_3X, TONE_LINEAR2, BLOOM_BROAD, CURVE_MILD,
-					HALO_100X, SPREAD_WIDE2, INTER_LONG, INTRA_LUT_A,
-					COLOR_PURPLE);
+					DOT_3X, TONE_BRIGHT, BLOOM_BROAD, CURVE_MILD,
+					HALO_150X, CURVE_MODERATE, SPREAD_WIDE1, KNEE_16,
+					INTER_LONG, INTRA_LUT_B,
+					COLORSPACE_OFF, CHANNEL_ORIGINAL, SLOT_MASK_ON);
 				default: fixed_1080p = fixed_480p(profile_i);
 			endcase
 		end
 	endfunction
 
-	logic [22:0] selected_settings;
+	logic [29:0] selected_settings;
 
 	always_comb begin
 		unique case (profile)
 			PROFILE_OFF: selected_settings = pack_settings(
 				off_dot_mode, off_tonemapping, BLOOM_OFF, CURVE_MINIMAL,
-				HALO_OFF, SPREAD_ORIGINAL, off_inter_frame_decay,
-				off_intra_frame_decay, COLOR_WHITE);
+				HALO_OFF, CURVE_MINIMAL, SPREAD_ORIGINAL, KNEE_16,
+				off_inter_frame_decay,
+				off_intra_frame_decay, COLORSPACE_OFF, CHANNEL_ORIGINAL,
+				SLOT_MASK_OFF);
 			PROFILE_CUSTOM1: selected_settings = custom1_settings;
 			PROFILE_CUSTOM2: selected_settings = custom2_settings;
 			default: begin
@@ -237,30 +269,19 @@ module vfb_profile_resolver (
 			end
 		endcase
 
-		dot_mode       = selected_settings[22:20];
-		tonemapping    = selected_settings[19:18];
-		bloom_width    = selected_settings[17:15];
-		bloom_curve    = selected_settings[14:12];
-		halo_filter    = selected_settings[11:9];
-		halo_spread    = selected_settings[8:7];
-		inter_frame_decay =
-			game_is_lander && (profile == PROFILE_OVERDRIVEN)
-				? INTER_SHORT
-				: selected_settings[6:5];
-		intra_frame_decay =
-			game_is_lander && (profile == PROFILE_OVERDRIVEN)
-				? INTRA_LUT_C
-				: selected_settings[4:3];
-
-		presentation_color = selected_settings[2:0];
-		if ((profile != PROFILE_CUSTOM1) &&
-		    (profile != PROFILE_CUSTOM2) &&
-		    (selected_settings[2:0] == COLOR_WHITE)) begin
-			if (game_is_lander)
-				presentation_color = COLOR_LUNAR;
-			else if (game_is_deluxe)
-				presentation_color = COLOR_DELUXE;
-		end
+		dot_mode       = selected_settings[24:22];
+		tonemapping    = selected_settings[21:20];
+		bloom_width    = selected_settings[19:17];
+		bloom_curve    = selected_settings[16:14];
+		halo_filter    = selected_settings[13:11];
+		halo_curve     = selected_settings[27:25];
+		halo_spread    = selected_settings[10:9];
+		halo_knee      = selected_settings[29:28];
+		inter_frame_decay = selected_settings[8:7];
+		intra_frame_decay = selected_settings[6:5];
+		color_space    = selected_settings[4];
+		presentation_color = selected_settings[3:1];
+		slot_mask      = selected_settings[0];
 		full_bypass    = (profile == PROFILE_OFF);
 	end
 

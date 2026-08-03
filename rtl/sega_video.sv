@@ -1,7 +1,7 @@
 //============================================================================
 //  Sega G-80 X-Y video: mode timing, coordinate map, vector renderer
 //
-//  The equivalent of asteroids_video.sv, and modelled on it: pick a render
+//  The equivalent of major_havoc_video.sv, and modelled on it: pick a render
 //  target and video timing from the reported HDMI height, generate the raster
 //  counters at clk_125, map the beam into the framebuffer, and hand the result
 //  to Videodr0me's vfb_top.
@@ -17,7 +17,8 @@
 `default_nettype none
 
 module sega_video (
-	input  wire        clk_12,
+	input  wire        clk_vec,     // vector-generator domain (12.096 MHz)
+	input  wire        vec_tick,    // VCL step enable within clk_vec
 	input  wire        clk_125,
 	input  wire        reset,
 
@@ -44,6 +45,9 @@ module sega_video (
 	input  wire  [1:0] osd_phosphor_mode,
 	input  wire  [1:0] osd_inter_frame_phosphor_mode,
 	input  wire  [1:0] osd_halo_spread,
+	input  wire  [2:0] osd_halo_curve,
+	input  wire  [1:0] osd_halo_knee,
+	input  wire        osd_expand_highlights,
 	input  wire        osd_color_space,
 	input  wire  [2:0] osd_presentation_color,
 	input  wire        osd_slot_mask,
@@ -259,7 +263,7 @@ module sega_video (
 	logic  [5:0] fb_c;
 	logic        fb_beam, fb_frame_done;
 
-	always_ff @(posedge clk_12) begin
+	always_ff @(posedge clk_vec) begin
 		if (reset) begin
 			fb_x <= 11'd0; fb_y <= 11'd0; fb_c <= 6'd0;
 			fb_beam <= 1'b0; fb_frame_done <= 1'b0;
@@ -282,7 +286,8 @@ module sega_video (
 
 	vfb_top renderer (
 		.clk_sys             (clk_125),
-		.clk_12              (clk_12),
+		.clk_source          (clk_vec),
+		.source_tick         (vec_tick),
 		.reset               (reset),
 		.video_timing_reset  (~mode_ready),
 
@@ -348,13 +353,14 @@ module sega_video (
 		.osd_phosphor_mode   (osd_phosphor_mode),
 		.osd_inter_frame_phosphor_mode (osd_inter_frame_phosphor_mode),
 		.osd_halo_spread     (osd_halo_spread),
+		.osd_halo_curve      (osd_halo_curve),
+		.osd_halo_knee       (osd_halo_knee),
+		.osd_expand_highlights (osd_expand_highlights),
 		.osd_color_space     (osd_color_space),
 		.osd_presentation_color (osd_presentation_color),
 		.osd_slot_mask       (osd_slot_mask),
 		.osd_slot_mask_rows  (osd_slot_mask_rows),
-		.osd_full_bypass     (osd_full_bypass),
-
-		.arbiter_reset_busy  ()
+		.osd_full_bypass     (osd_full_bypass)
 	);
 
 endmodule

@@ -1,7 +1,8 @@
 // ============================================================================
-// videodr0me_fb: Rasterizer
+// Vector pixel rasterizer.
 // written 2026 by Videodr0me
-// Handles dual-clock FIFO decoding and subpixel generation.
+// Transfers source pixels to the framebuffer clock and adds dot or diagonal
+// fill pixels where selected.
 // ============================================================================
 
 module vfb_rasterizer #(
@@ -9,14 +10,14 @@ module vfb_rasterizer #(
 	parameter FIFO_ADDR_W = 10
 ) (
 	input  logic clk_sys,
-	input  logic clk_12,
+	input  logic clk_source,
 	input  logic reset,
 
-	// Vector Input Interface (clk_12 from DVG)
+	// Vector input
 	input  logic [10:0] X_VECTOR,
 	input  logic [10:0] Y_VECTOR,
 	input  logic [7:0]  Z_VECTOR,
-	input  logic [5:0]  COLOR,   // LOCAL MOD: 6-bit RRGGBB
+	input  logic [5:0]  COLOR,   // RRGGBB, 2 bits per gun
 	input  logic        IS_DOT,
 	input  logic        BEAM_ON,
 	input  logic        FRAME_DONE,
@@ -24,13 +25,13 @@ module vfb_rasterizer #(
 	input  logic [11:0] FB_WIDTH,
 	input  logic [11:0] FB_HEIGHT,
 
-	// Cache Manager Interface (clk_sys)
+	// Tile cache output
 	output logic        pixel_valid,
 	input  logic        pixel_ready,
 	output logic [15:0] pixel_tile_id,
 	output logic [5:0]  pixel_offset,
 	output logic [15:0] pixel_data,
-	input  logic [3:0]  draw_idx,         // Pixel draw-time phase
+	input  logic [2:0]  draw_idx,         // Pixel draw-time phase
 	input  logic [15:0] frame_tick_clks, // Source clocks per draw-index phase
 	input  logic [15:0] completed_frame_tick_clks,
 
@@ -47,6 +48,10 @@ module vfb_rasterizer #(
 	localparam logic [2:0] DOT_3X  = 3'd2;
 	localparam logic [2:0] DOT_1X  = 3'd3;
 
+	logic [2:0] dot_mode_q = DOT_2X;
+	always_ff @(posedge clk_sys)
+		dot_mode_q <= DOT_MODE;
+
 	function [FIFO_PTR_W-1:0] b2g(input [FIFO_PTR_W-1:0] b);
 		b2g = b ^ (b >> 1);
 	endfunction
@@ -61,9 +66,7 @@ module vfb_rasterizer #(
 		end
 	endfunction
 
-	// Async FIFO (clk_12 -> clk_sys). The renderer consumer normally drains much
-	// faster than the 12 MHz DVG producer; this covers cache and DDR arbitration
-	// stalls.
+	// The FIFO lets vector drawing continue while the framebuffer is busy.
 	(* ramstyle = "M10K" *) logic [37:0] fifo_mem [0:FIFO_DEPTH-1];
 
 	logic [FIFO_PTR_W-1:0] wr_ptr = 0;
@@ -76,7 +79,7 @@ module vfb_rasterizer #(
 	logic [FIFO_PTR_W-1:0] rd_ptr_g_sync1_12 = 0;
 	logic [FIFO_PTR_W-1:0] rd_ptr_g_sync2_12 = 0;
 
-	// Write side (clk_12)
+	// Source-clock side
 	logic [10:0] last_x = 0;
 	logic [10:0] last_y = 0;
 	logic        last_beam_on = 0;
@@ -86,7 +89,10 @@ module vfb_rasterizer #(
 	wire push_pix = (BEAM_ON && (X_VECTOR != last_x || Y_VECTOR != last_y || !last_beam_on));
 	wire fifo_we  = push_eof || push_pix;
 
-	// LOCAL MOD: COLOR widened 4 -> 6 bits, so the word grows 36 -> 38.
+	// LOCAL MODIFICATION for the Sega G-80 X-Y core: the colour field is
+	// widened from 4 to 6 bits so all three guns carry a 2-bit level.
+	// Sega drives each gun from its own 2-bit resistor ladder, where Major
+	// Havoc has 2 bits on red only. See Research/colour-census.md.
 	wire [37:0] fifo_din = push_eof ? {
 		1'b1, 5'd0, completed_frame_tick_clks, frame_tick_clks
 	} : {
@@ -104,14 +110,15 @@ module vfb_rasterizer #(
 		(wr_ptr_g_next ==
 		 {~rd_ptr_g_sync2_12[FIFO_PTR_W-1:FIFO_PTR_W-2],
 		   rd_ptr_g_sync2_12[FIFO_PTR_W-3:0]});
-	logic [1:0] rst_12_sync = 2'b11;
-	always_ff @(posedge clk_12) rst_12_sync <= {rst_12_sync[0], reset};
-	wire rst_12 = rst_12_sync[1];
+	logic [1:0] rst_source_sync = 2'b11;
+	always_ff @(posedge clk_source)
+		rst_source_sync <= {rst_source_sync[0], reset};
+	wire rst_source = rst_source_sync[1];
 
 	// Synchronize the Gray-coded read pointer back to the write domain so a
 	// prolonged DDR/cache stall cannot silently overwrite unread entries.
-	always_ff @(posedge clk_12) begin
-		if (rst_12) begin
+	always_ff @(posedge clk_source) begin
+		if (rst_source) begin
 			rd_ptr_g_sync1_12 <= 0;
 			rd_ptr_g_sync2_12 <= 0;
 		end else begin
@@ -120,13 +127,13 @@ module vfb_rasterizer #(
 		end
 	end
 
-	always_ff @(posedge clk_12) begin
+	always_ff @(posedge clk_source) begin
 		last_x <= X_VECTOR;
 		last_y <= Y_VECTOR;
 		last_beam_on <= BEAM_ON;
 		last_frame_done <= FRAME_DONE;
 
-		if (rst_12) begin
+		if (rst_source) begin
 			wr_ptr <= 0;
 			wr_ptr_g <= 0;
 		end else if (fifo_we) begin
@@ -138,14 +145,14 @@ module vfb_rasterizer #(
 		end
 	end
 
-	// Read side (clk_sys)
+	// Framebuffer-clock side
 	always_ff @(posedge clk_sys) begin
 		wr_ptr_g_sync1 <= wr_ptr_g;
 		wr_ptr_g_sync2 <= wr_ptr_g_sync1;
 	end
 	assign fifo_empty = (rd_ptr_g == wr_ptr_g_sync2);
 
-	// FIFO fill level LED with display timer
+	// FIFO high-water LED, held for about 75 ms.
 	wire [FIFO_PTR_W-1:0] wr_ptr_bin = g2b(wr_ptr_g_sync2);
 	wire [FIFO_PTR_W-1:0] fifo_used = wr_ptr_bin - rd_ptr;
 	wire fifo_full_flag = (fifo_used > FIFO_PTR_W'(128));
@@ -161,15 +168,15 @@ module vfb_rasterizer #(
 	always_ff @(posedge clk_sys) rst_sys_sync <= {rst_sys_sync[0], reset};
 	wire rst_sys = rst_sys_sync[1];
 
-	// Pipeline: FIFO -> Stage A (buffer) -> Stage B (process/insert) -> Out
+	// Flow: FIFO -> input register -> expansion stage -> tile cache.
 	//
-	// Stage A: Single-entry buffer, reads from FIFO when empty or consumed.
-	// Stage B: Emits primaries and inserts diagonal fill pixels or dot expansion.
-	//   B_IDLE      - Accept pixel from A, emit primary, detect expansions.
-	//   B_CHECK_SUB - Select a diagonal fill corner using lookahead, then emit.
-	//   B_DOT_SUB   - Emit dot expansion subpixels (stalls A).
+	// The input register holds one FIFO entry. The expansion stage emits the
+	// source pixel, then any diagonal fill or enlarged-dot pixels.
+	//   B_IDLE      - accept and emit a source pixel
+	//   B_CHECK_SUB - choose and emit a diagonal fill pixel
+	//   B_DOT_SUB   - emit enlarged-dot pixels
 
-	// Stage A
+	// Input register
 	logic [37:0] a_data;
 	logic        a_valid = 0;
 	wire         a_ready;
@@ -198,9 +205,9 @@ module vfb_rasterizer #(
 	wire [5:0]  a_c      = a_data[35:30];
 	wire        a_is_dot = a_data[36];
 	wire        a_eof    = a_data[37];
-	wire [2:0]  a_dot    = DOT_MODE;
+	wire [2:0]  a_dot    = dot_mode_q;
 
-	// Stage B
+	// Expansion state
 	typedef enum logic [1:0] {
 		B_IDLE,
 		B_CHECK_SUB,
@@ -220,7 +227,7 @@ module vfb_rasterizer #(
 	wire b_output_free = pixel_ready || !s2_out_valid;
 	assign pixel_valid = s2_out_valid;
 
-	// Preferred and alternate diagonal fill pixels.
+	// Two possible pixels for filling a diagonal step.
 	logic [10:0] pending_sub_x;
 	logic [10:0] pending_sub_y;
 	logic [7:0]  pending_sub_z;
@@ -229,7 +236,7 @@ module vfb_rasterizer #(
 	logic [10:0] pending_alt_y;
 	logic        pending_is_xdom;
 
-	// 2-deep history for previous step classification
+	// Keep the previous two source positions.
 	logic [10:0] hist_x [2];
 	logic [10:0] hist_y [2];
 	logic [1:0]  hist_count = 0;
@@ -237,7 +244,7 @@ module vfb_rasterizer #(
 	logic [10:0] read_last_x = 0;
 	logic [10:0] read_last_y = 0;
 
-	// Dot expansion state
+	// Enlarged-dot state
 	logic [2:0]  dot_idx;
 	logic [2:0]  dot_last_idx;
 	logic [2:0]  dot_mode;
@@ -315,12 +322,11 @@ module vfb_rasterizer #(
 	assign dot_candidate_valid = (dot_candidate_x < FB_WIDTH) &&
 	                             (dot_candidate_y < FB_HEIGHT);
 
-	// Combinational step classification
+	// Classify the current step.
 	wire [10:0] step_dx = (a_x > read_last_x) ? (a_x - read_last_x)
 	                                           : (read_last_x - a_x);
 	wire [10:0] step_dy = (a_y > read_last_y) ? (a_y - read_last_y)
 	                                           : (read_last_y - a_y);
-	// To compile diagonal subpixel insertion out, force this wire to 1'b0.
 	wire step_is_diag = (step_dx == 11'd1 && step_dy == 11'd1);
 	wire primary_is_dot = a_is_dot && (a_dot < DOT_1X);
 	wire is_neighbor  = (step_dx <= 11'd1) && (step_dy <= 11'd1);
@@ -371,16 +377,16 @@ module vfb_rasterizer #(
 							dot_x        <= a_x;
 							dot_y        <= a_y;
 						end else if (step_is_diag) begin
-							// Store both fill options for the lookahead stage.
+							// Keep both fill choices until the next source pixel.
 							if (hist_count >= 2'd2 && hist_x[0] == hist_x[1] && hist_y[0] != hist_y[1]) begin
-								// Previous step was V: prefer X-dom
+								// After a vertical step, keep the fill on the new x coordinate.
 								pending_sub_x   <= a_x;
 								pending_sub_y   <= read_last_y;
 								pending_alt_x   <= read_last_x;
 								pending_alt_y   <= a_y;
 								pending_is_xdom <= 1;
 							end else begin
-								// Default: prefer Y-dom
+								// Otherwise keep the fill on the new y coordinate.
 								pending_sub_x   <= read_last_x;
 								pending_sub_y   <= a_y;
 								pending_alt_x   <= a_x;
@@ -398,8 +404,8 @@ module vfb_rasterizer #(
 				end
 			end
 
-			// If the preferred fill aligns with the next primary on the dominant
-			// axis, use the alternate corner.
+			// If the preferred fill aligns with the next source pixel, use the
+			// other corner.
 			B_CHECK_SUB: begin
 				if (a_valid && b_output_free) begin
 					if (!a_eof && (pending_is_xdom ? (a_x == pending_sub_x) : (a_y == pending_sub_y))) begin
@@ -439,12 +445,11 @@ module vfb_rasterizer #(
 
 	assign pixel_tile_id = {s2_out_y[10:3], s2_out_x[10:3]};
 	assign pixel_offset  = {s2_out_y[2:0],  s2_out_x[2:0]};
-	// LOCAL MOD: store all six colour bits. Sega's intensity is binary, so the
-	// two low bits of Z are the cheapest thing to give up; they are replicated
-	// back on read (see vfb_readout).
-	//   { rgb[5:0], draw_idx[3:0], z[7:2] }
+	// LOCAL MOD: { rgb[5:0], draw_idx[2:0], z[7:1] } — still exactly 16 bits.
+	// Sega's beam intensity is binary, so the low Z bit is the cheapest thing
+	// to give up; vfb_readout replicates it back on read.
 	assign pixel_data    = eof_token ? s2_eof_frame_tick_clks
-	                                 : {s2_out_c, draw_idx, s2_out_z[7:2]};
+	                                 : {s2_out_c, draw_idx, s2_out_z[7:1]};
 	assign eof_completed_frame_tick_clks = s2_eof_completed_frame_tick_clks;
 
 endmodule

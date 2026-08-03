@@ -26,10 +26,10 @@
 module segag80v #(
 	parameter int PHASE_CLKS  = 16,
 	parameter int WAIT_STATES = 2,
-	// clk_12 is 12.096 MHz on the MiSTer PLL, not a round 12
+	// clk_vec is 12.096 MHz on the MiSTer PLL, not a round 12
 	parameter int CLK_HZ      = 12_096_000
 ) (
-	input  wire        clk_12,
+	input  wire        clk_vec,
 	input  wire        reset,
 	input  wire        pause,
 
@@ -64,6 +64,7 @@ module segag80v #(
 	output wire        vec_valid,
 	output wire        drawing,
 	output wire        frame_done,
+	output wire        vec_tick,    // VCL step enable, paces the renderer
 
 	// ---- sound board strobes (audio not implemented yet) ----
 	output wire        snd_wr,
@@ -88,7 +89,7 @@ module segag80v #(
 	logic [24:0] acc_cpu, acc_vcl;
 	logic        ce_cpu, ce_vcl;
 
-	always_ff @(posedge clk_12) begin
+	always_ff @(posedge clk_vec) begin
 		if (reset) begin
 			acc_cpu <= '0; ce_cpu <= 1'b0;
 			acc_vcl <= '0; ce_vcl <= 1'b0;
@@ -118,7 +119,7 @@ module segag80v #(
 	logic [16:0] edgint_cnt;
 	wire         edgint = ce_vcl && (edgint_cnt == 17'(EDGINT_DIV - 1));
 
-	always_ff @(posedge clk_12) begin
+	always_ff @(posedge clk_vec) begin
 		if (reset)       edgint_cnt <= 17'd0;
 		else if (ce_vcl) edgint_cnt <= edgint ? 17'd0 : (edgint_cnt + 17'd1);
 	end
@@ -137,7 +138,7 @@ module segag80v #(
 	wire rom_wr_sin  = rom_wr && (rom_addr >= PROM_BASE)
 	                          && (rom_addr < PROM_BASE + 16'd1024);
 
-	always_ff @(posedge clk_12) begin
+	always_ff @(posedge clk_vec) begin
 		if (rom_wr_prog) prog_rom[rom_addr] <= rom_data;
 		cpu_rom_data <= prog_rom[cpu_rom_addr];
 	end
@@ -151,7 +152,7 @@ module segag80v #(
 	wire  [7:0] vram_dout;
 
 	segag80v_cpu #(.WAIT_STATES(WAIT_STATES)) cpu (
-		.clk        (clk_12),
+		.clk        (clk_vec),
 		.ce_cpu     (ce_cpu),
 		.reset      (reset),
 		.cfg_chip   (cfg_chip),
@@ -193,6 +194,10 @@ module segag80v #(
 		.dbg_op_addr  ()
 	);
 
+	// videodr0me_fb measures the EOF period in source ticks, so it self-
+	// calibrates to the 40 Hz redraw rate from this.
+	assign vec_tick = ce_vcl;
+
 	// the sound latches all sit on the CPU data bus
 	assign snd_data = usb_din;
 
@@ -201,7 +206,7 @@ module segag80v #(
 	// enough that it is left instantiated and simply never written.
 	// ------------------------------------------------------------------
 	sega_ay #(.CLK_HZ(CLK_HZ)) ay (
-		.clk      (clk_12),
+		.clk      (clk_vec),
 		.reset    (reset),
 		.wr       (ay_wr_stb),
 		.addr_sel (ay_port_sel),
@@ -213,7 +218,7 @@ module segag80v #(
 	// (the same treatment the CPU multiplier needs).
 	logic ay_wr_d;
 	logic ay_port_sel;
-	always_ff @(posedge clk_12) begin
+	always_ff @(posedge clk_vec) begin
 		if (reset) begin
 			ay_wr_d     <= 1'b0;
 			ay_port_sel <= 1'b0;
@@ -230,7 +235,7 @@ module segag80v #(
 	sega_xy_top #(
 		.PHASE_CLKS (PHASE_CLKS)
 	) xy (
-		.clk         (clk_12),
+		.clk         (clk_vec),
 		.ce          (ce_vcl),
 		.reset       (reset),
 		.frame_start (edgint),

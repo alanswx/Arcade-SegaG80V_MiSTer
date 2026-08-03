@@ -20,25 +20,27 @@ module vfb_blur (
 
 	localparam int BLUR_LATENCY = 7;
 
-	logic [10:0] active_x_d [1:12];
-	logic        hblank_d [1:12];
-	logic [23:0] rgb_in_d [1:12];
+	logic [10:0] active_x_d [1:BLUR_LATENCY+1];
+	logic        hblank_d [1:BLUR_LATENCY+1];
+	logic [23:0] rgb_in_d [1:3];
 
 	always_ff @(posedge clk_sys) begin
 		if (ce_pix) begin
 			active_x_d[1] <= active_x_in;
 			hblank_d[1]   <= hblank_in;
 			rgb_in_d[1]   <= rgb_in;
-			for (int i=2; i<=12; i++) begin
+			for (int i=2; i<=BLUR_LATENCY+1; i++) begin
 				active_x_d[i] <= active_x_d[i-1];
 				hblank_d[i]   <= hblank_d[i-1];
+			end
+			for (int i=2; i<=3; i++) begin
 				rgb_in_d[i]   <= rgb_in_d[i-1];
 			end
 		end
 	end
 
-	// Four 24-bit RGB line buffers, 1472 pixels each.
-	// no_rw_check disables read-during-write bypass logic for these line delays.
+	// Four 1472-pixel RGB line buffers.
+	// The design does not depend on read-during-write behavior.
 	(* ramstyle = "M10K, no_rw_check" *) logic [23:0] lb_0 [0:1471];
 	(* ramstyle = "M10K, no_rw_check" *) logic [23:0] lb_1 [0:1471];
 	(* ramstyle = "M10K, no_rw_check" *) logic [23:0] lb_2 [0:1471];
@@ -66,16 +68,15 @@ module vfb_blur (
 	assign lb_2_out = hblank_d[2] ? 24'd0 : lb_2_ram;
 	assign lb_3_out = hblank_d[2] ? 24'd0 : lb_3_ram;
 
-	// Line-buffer reads and writes.
 	always_ff @(posedge clk_sys) begin
 		if (ce_pix) begin
-			// C1: Read line buffers at active_x_d[1].
+			// Read previous lines.
 			lb_0_ram <= clearing ? 24'd0 : lb_0[active_x_d[1]];
 			lb_1_ram <= clearing ? 24'd0 : lb_1[active_x_d[1]];
 			lb_2_ram <= clearing ? 24'd0 : lb_2[active_x_d[1]];
 			lb_3_ram <= clearing ? 24'd0 : lb_3[active_x_d[1]];
 
-			// C2: Write line buffers at active_x_d[2].
+			// Shift each line into the next buffer.
 			if (!hblank_d[2] || clearing) begin
 				lb_0[clearing ? clear_addr : active_x_d[2]] <= clearing ? 24'd0 : rgb_in_d[2];
 				lb_1[clearing ? clear_addr : active_x_d[2]] <= clearing ? 24'd0 : lb_0_out;
@@ -83,7 +84,7 @@ module vfb_blur (
 				lb_3[clearing ? clear_addr : active_x_d[2]] <= clearing ? 24'd0 : lb_2_out;
 			end
 
-			// C2: Latch masked outputs for C3
+			// Keep blanked samples at zero.
 			lb_0_reg <= lb_0_out;
 			lb_1_reg <= lb_1_out;
 			lb_2_reg <= lb_2_out;
@@ -93,12 +94,12 @@ module vfb_blur (
 
 	logic [23:0] v_blur;
 	logic [23:0] h_shift [0:3];
-	logic [8:0] h_blur_r, h_blur_g, h_blur_b;
+	logic [7:0] h_blur_r, h_blur_g, h_blur_b;
 
 	always_ff @(posedge clk_sys) begin
 		if (ce_pix && !clearing) begin
 
-			// C3: Compute vertical blur
+			// Vertical blur.
 			if (enable) begin
 				v_blur[7:0]   <= 8'( ((13'(rgb_in_d[3][7:0])   + 13'(lb_3_reg[7:0])   + 13'd8) + ((13'(lb_0_reg[7:0])   + 13'(lb_2_reg[7:0]))   << 2) + (13'(lb_1_reg[7:0])   * 13'd6)) >> 4 );
 				v_blur[15:8]  <= 8'( ((13'(rgb_in_d[3][15:8])  + 13'(lb_3_reg[15:8])  + 13'd8) + ((13'(lb_0_reg[15:8])  + 13'(lb_2_reg[15:8]))  << 2) + (13'(lb_1_reg[15:8])  * 13'd6)) >> 4 );
@@ -107,27 +108,24 @@ module vfb_blur (
 				v_blur <= lb_1_reg; // 2-line delayed center pixel
 			end
 
-			// C4-C7: Horizontal Shift
+			// Shift horizontal samples.
 			h_shift[0] <= v_blur;
 			h_shift[1] <= h_shift[0];
 			h_shift[2] <= h_shift[1];
 			h_shift[3] <= h_shift[2];
 
-			// C8: Compute Horizontal Blur
+			// Horizontal blur.
 			if (enable) begin
-				h_blur_r <= 9'( ((13'(v_blur[23:16]) + 13'(h_shift[3][23:16]) + 13'd8) + ((13'(h_shift[0][23:16]) + 13'(h_shift[2][23:16])) << 2) + (13'(h_shift[1][23:16]) * 13'd6)) >> 4 );
-				h_blur_g <= 9'( ((13'(v_blur[15:8])  + 13'(h_shift[3][15:8])  + 13'd8) + ((13'(h_shift[0][15:8])  + 13'(h_shift[2][15:8]))  << 2) + (13'(h_shift[1][15:8])  * 13'd6)) >> 4 );
-				h_blur_b <= 9'( ((13'(v_blur[7:0])   + 13'(h_shift[3][7:0])   + 13'd8) + ((13'(h_shift[0][7:0])   + 13'(h_shift[2][7:0]))   << 2) + (13'(h_shift[1][7:0])   * 13'd6)) >> 4 );
+				h_blur_r <= 8'( ((13'(v_blur[23:16]) + 13'(h_shift[3][23:16]) + 13'd8) + ((13'(h_shift[0][23:16]) + 13'(h_shift[2][23:16])) << 2) + (13'(h_shift[1][23:16]) * 13'd6)) >> 4 );
+				h_blur_g <= 8'( ((13'(v_blur[15:8])  + 13'(h_shift[3][15:8])  + 13'd8) + ((13'(h_shift[0][15:8])  + 13'(h_shift[2][15:8]))  << 2) + (13'(h_shift[1][15:8])  * 13'd6)) >> 4 );
+				h_blur_b <= 8'( ((13'(v_blur[7:0])   + 13'(h_shift[3][7:0])   + 13'd8) + ((13'(h_shift[0][7:0])   + 13'(h_shift[2][7:0]))   << 2) + (13'(h_shift[1][7:0])   * 13'd6)) >> 4 );
 			end else begin
-				h_blur_r <= {1'b0, h_shift[1][23:16]}; // 2-pixel delayed center pixel
-				h_blur_g <= {1'b0, h_shift[1][15:8]};
-				h_blur_b <= {1'b0, h_shift[1][7:0]};
+				h_blur_r <= h_shift[1][23:16]; // 2-pixel delayed center pixel
+				h_blur_g <= h_shift[1][15:8];
+				h_blur_b <= h_shift[1][7:0];
 			end
 
-			// Clamp the registered RGB result.
-			rgb_out[23:16] <= (h_blur_r > 9'd255) ? 8'd255 : h_blur_r[7:0];
-			rgb_out[15:8]  <= (h_blur_g > 9'd255) ? 8'd255 : h_blur_g[7:0];
-			rgb_out[7:0]   <= (h_blur_b > 9'd255) ? 8'd255 : h_blur_b[7:0];
+			rgb_out <= {h_blur_r, h_blur_g, h_blur_b};
 		end
 	end
 

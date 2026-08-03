@@ -5,7 +5,7 @@ listed under "Local modifications" below, so upstream updates can be rebased.
 
 | Path in this repo | Upstream | Commit |
 |---|---|---|
-| `rtl/videodr0me_fb/` | [Videodr0me/Arcade-Asteroids_MiSTer](https://github.com/Videodr0me/Arcade-Asteroids_MiSTer) `rtl/videodr0me_fb/` | `ebfd5d89605b4ec1f48932f68955ebed90256513` |
+| `rtl/videodr0me_fb/` | [Videodr0me/Arcade-MajorHavoc_MiSTer](https://github.com/Videodr0me/Arcade-MajorHavoc_MiSTer) `rtl/videodr0me_fb/` | see below |
 | `sys/` | [Videodr0me/Arcade-StarWars_MiSTer](https://github.com/Videodr0me/Arcade-StarWars_MiSTer) `sys/` | `5270c74394c3828500543845f76011f88226dbff` |
 | `rtl/present_gate.sv` | [derpyder/Arcade-Tempest_MiSTer](https://github.com/derpyder/Arcade-Tempest_MiSTer) `rtl/present_gate.sv` | `92711125331383ffec7d4c3b053ed4b5dd232411` |
 | `rtl/tv80/` | [MiSTer-devel/Arcade-SegaVICZ80_MiSTer](https://github.com/MiSTer-devel/Arcade-SegaVICZ80_MiSTer) `rtl/tv80/` | `16386ffec0bf548520d174538190c09ffa426368` |
@@ -38,35 +38,64 @@ One spare bit at [8]. Sega needs 6-bit colour (2 bits/gun). See
 `docs/02-mister-core-plan.md` §3 for the repack, and Phase 0 for the census that
 decides whether the repack is needed at all.
 
+## Renderer: migrated from Asteroids to Major Havoc
+
+Videodr0me pointed out that Havoc's renderer, not Asteroids', is the most
+advanced: more OSD options, a different halo, and `vfb_layout_pkg.sv`. It is
+also **125 MHz instead of Asteroids' 128.52 MHz**, which he flagged as a
+timing-sensitivity difference — and this core had inherited the 128.52 PLL,
+which is the likely reason it needed `SEED 3` to close.
+
+Two structural gains beyond the effects:
+
+* **`clk_source` + `source_tick` replace the fixed `clk_12`.** The phosphor
+  timing measures the EOF period *in source ticks*, so it self-calibrates to
+  whatever rate the vector generator runs at. Sega's is 2.578 MHz against
+  Atari's ~12 MHz, so this removes a hardcoded assumption rather than working
+  around it — `segag80v` now exports `vec_tick` and the renderer paces itself
+  from the real VCL rate.
+* **Havoc already carries 4-bit colour** ({strong red, fine red, green, blue}),
+  with a proper DAC model — `calibrated_dac_level`, `fine`/`main`/`shoulder`
+  levels and `expand_highlights`. That is a far better base for Sega's 6-bit
+  than Asteroids' flat 3-bit mask.
+
+Clocking now mirrors Havoc: the framework PLL supplies 125/10/50 MHz and a
+separate `sega_clocks` PLL supplies the 12.096 MHz machine domain, exactly as
+`major_havoc_clocks.sv` does for its AVG.
+
 ## Local modifications
 
-**6-bit colour repack** (2026-08-03). Mandated by the Phase 0 census — see
-`colour-census.md`: 42 of the 64 Sega colours cannot be expressed as hue x
-brightness and they cover 22% of all beam-on samples, so the stock 3-bit RGB
-path would visibly wreck the picture.
+**6-bit colour** (2026-08-03, reworked onto Havoc). Mandated by the Phase 0
+census — see `colour-census.md`: 42 of the 64 Sega colours cannot be expressed
+as hue x brightness and they cover 22% of all beam-on samples.
+
+Videodr0me on the intensity/colour trade: *"reducing the intensity bits to gain
+the RGB 6 bit encoding was absolutely the right call."*
+
+Rather than bypassing his DAC model, the change **generalises it**. Major Havoc
+has two red bits against 1-bit green and blue, so only red had a level ladder,
+inline in `vfb_readout`. The Sega X-Y Control board drives all three guns from
+identical 2-bit ladders (6.2k/12k, drawing 800-0163 sheet 6/6), so the ladder
+is pulled out into `vfb_dac_ladder.sv` and applied per channel.
 
 Stored pixel layouts, both still exactly 16 bits:
 
 ```
-rasterised  { rgb[5:0], draw_idx[3:0], z[7:2] }      (was { rgb[2:0], draw_idx[3:0], 1'b0, z[7:0] })
-composed    { rgb[5:0], fresh,         energy[8:0] } (was { rgb[2:0], fresh, 3'd0, energy[8:0] })
+rasterised  { rgb[5:0], draw_idx[2:0], z[7:1] }      (was { rgb[3:0], draw_idx[2:0], 1'b0, z[7:0] })
+composed    { rgb[5:0], fresh,         energy[8:0] } (was { rgb[3:0], fresh, 2'd0, energy[8:0] })
 ```
-
-Sega's intensity is binary, so the two low bits of Z are the cheapest thing to
-surrender; `vfb_readout` replicates the top two bits back into the low end on
-read, so 63 restores to 255 exactly.
 
 | File | Change |
 |---|---|
 | `vfb_top.sv` | `COLOR` 4 -> 6 bits |
-| `vfb_rasterizer.sv` | `COLOR` 4 -> 6; FIFO word 36 -> 38 bits; `a_c`/`s2_out_c`/`dot_base_c`/`pending_sub_c` widened; `pixel_data` repacked |
-| `vfb_readout.sv` | decode `rgb` from `[15:10]`, `draw_idx` from `[9:6]`, Z expanded from `[5:0]`; colour resolution moved into the new `vfb_color6` |
-| `vfb_phosphor_compositor.sv` | rgb registers 3 -> 6 bits; colour combine changed from bitwise OR to **per-channel max** (OR-ing 2-bit levels invents colours neither source had); channel-present tests become `\|level`; energy normalisation keyed off a lit-channel count; `stored_pixel` repacked |
-| `vfb_color6.sv` | **new** — 2-bit-per-gun ladder (0, 1/3, 2/3, 1 of full scale, matching the 6.2K/12K network on X-Y Control sheet 6/6) plus the stock overflow-spill behaviour |
+| `vfb_rasterizer.sv` | `COLOR` 4 -> 6; FIFO word 36 -> 38 bits; colour registers widened; `pixel_data` repacked |
+| `vfb_readout.sv` | decode `rgb` from `[15:10]`, `draw_idx` from `[9:7]`, Z expanded from `[6:0]`; the red-only fine/main split replaced by a per-gun ladder |
+| `vfb_phosphor_compositor.sv` | colour registers 4 -> 6 bits; `stored_pixel` repacked |
+| `vfb_dac_ladder.sv` | **new** — the 2-bit-per-gun ladder, 0 / 1/3 / 2/3 / 1 |
 
-Verified by `make color6`: all 64 colours x all 512 intensities against a C
-model of the ladder, plus the Z round-trip. The whole renderer still lints with
-zero errors and no new warnings.
+Verified by `make color6`: all 1024 DAC levels x 4 gun levels against an exact
+model of the ladder, worst error 1 LSB, with levels 0 and 3 exact and
+monotonicity checked in both arguments.
 
 If upstream `videodr0me_fb` moves, rebase these five files; nothing else in the
 renderer was touched.

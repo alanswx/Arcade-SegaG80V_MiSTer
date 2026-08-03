@@ -2,8 +2,8 @@
 // Local bloom stage for the delayed primary stream.
 // written 2026 by Videodr0me
 //
-// Applies the LUT-shaped bloom source curve, runs the local blur passes, and
-// composites the bloom result back into the primary stream.
+// Applies the bloom source curve, runs the local blur passes, and combines
+// the result with the primary image.
 // ============================================================================
 
 module vfb_filter (
@@ -11,11 +11,11 @@ module vfb_filter (
 	input  logic        ce_pix,
 	input  logic        reset,
 
-	// OSD Filter Parameters
+	// Bloom controls
 	input  logic [2:0]  osd_bloom_width,
 	input  logic [9:0]  bloom_curve_gain,
 
-	// Delayed primary input
+	// Delayed primary image
 	input  logic [7:0]  VGA_R_IN,
 	input  logic [7:0]  VGA_G_IN,
 	input  logic [7:0]  VGA_B_IN,
@@ -24,7 +24,7 @@ module vfb_filter (
 	input  logic        VGA_HBLANK_IN,
 	input  logic        VGA_VBLANK_IN,
 
-	// Primary/bloom output packet
+	// Filtered output
 	output logic [7:0]  VGA_R_OUT,
 	output logic [7:0]  VGA_G_OUT,
 	output logic [7:0]  VGA_B_OUT,
@@ -33,6 +33,13 @@ module vfb_filter (
 	output logic        VGA_HBLANK_OUT,
 	output logic        VGA_VBLANK_OUT
 );
+
+	logic [2:0] osd_bloom_width_q = 3'd0;
+	logic [9:0] bloom_curve_gain_q = 10'd64;
+	always_ff @(posedge clk_sys) begin
+		osd_bloom_width_q <= osd_bloom_width;
+		bloom_curve_gain_q <= bloom_curve_gain;
+	end
 
 	logic [7:0] vga_r_in_r;
 	logic [7:0] vga_g_in_r;
@@ -64,7 +71,7 @@ module vfb_filter (
 
 	logic [8:0] bloom_comp_scale;
 	always_comb begin
-		case (osd_bloom_width)
+		case (osd_bloom_width_q)
 			3'd0: bloom_comp_scale = 9'd0;    // Off
 			3'd1: bloom_comp_scale = 9'd24;   // Thin
 			3'd2: bloom_comp_scale = 9'd43;   // Tight
@@ -417,12 +424,12 @@ module vfb_filter (
 
 	logic en_p1, en_p2, en_p3;
 	always_comb begin
-		en_p1 = (osd_bloom_width >= 3'd1);
-		en_p2 = (osd_bloom_width >= 3'd3);
-		en_p3 = (osd_bloom_width >= 3'd5);
+		en_p1 = (osd_bloom_width_q >= 3'd1);
+		en_p2 = (osd_bloom_width_q >= 3'd3);
+		en_p3 = (osd_bloom_width_q >= 3'd5);
 	end
 
-	// Sync pipeline matched to the RGB path.
+	// Delay sync and blanking to match RGB.
 	(* ramstyle = "M10K, no_rw_check" *) logic [3:0] sync_lb_0 [0:2047];
 	(* ramstyle = "M10K, no_rw_check" *) logic [3:0] sync_lb_1 [0:2047];
 	(* ramstyle = "M10K, no_rw_check" *) logic [3:0] sync_lb_2 [0:2047];
@@ -437,7 +444,6 @@ module vfb_filter (
 
 	logic [10:0] h_count;
 	logic [10:0] h_count_d1;
-	logic [10:0] hc_pipe [1:33];
 	logic hs_d;
 
 	logic [33:0] hs_pipe, vs_pipe, hb_pipe, vb_pipe;
@@ -463,9 +469,6 @@ module vfb_filter (
 
 			if (vga_hs_in_r && !hs_d) h_count <= 0;
 			else if (h_count < 11'd2047) h_count <= h_count + 11'd1;
-
-			hc_pipe[1] <= h_count;
-			for (int i=2; i<=33; i++) hc_pipe[i] <= hc_pipe[i-1];
 
 			h_count_d1 <= h_count;
 
@@ -496,26 +499,20 @@ module vfb_filter (
 		end
 	end
 
-	// Internal active_x counter
+	// Track horizontal position through the filter.
 	localparam integer COMP_SERVICE_STAGE = 30;
 	localparam integer COMP_WRITE_STAGE = 31;
 	localparam integer COMP_PRESENT_READ_STAGE = 32;
 	localparam integer COMP_OUTPUT_SYNC_STAGE = 30;
 	logic [10:0] active_x;
 	logic [10:0] ax_pipe [1:33];
-	logic [10:0] present_x_pipe [1:33];
 	logic        ax_valid_pipe [1:33];
-	logic        pixel_valid_pipe [1:33];
-	logic        active_hblank_pipe [1:30];
 
 	always_ff @(posedge clk_sys) begin
 		if (reset) begin
 			active_x <= 11'd0;
 			for (int i=1; i<=33; i++) ax_pipe[i] <= 11'd0;
-			for (int i=1; i<=33; i++) present_x_pipe[i] <= 11'd0;
 			for (int i=1; i<=33; i++) ax_valid_pipe[i] <= 1'b0;
-			for (int i=1; i<=33; i++) pixel_valid_pipe[i] <= 1'b0;
-			for (int i=1; i<=30; i++) active_hblank_pipe[i] <= 1'b1;
 		end else if (ce_pix) begin
 			if (vga_hblank_in_r) begin
 				active_x <= 11'd0;
@@ -527,25 +524,12 @@ module vfb_filter (
 			ax_pipe[1] <= vga_hblank_in_r ? 11'd0 : active_x;
 			for (int i=2; i<=33; i++) ax_pipe[i] <= ax_pipe[i-1];
 
-			present_x_pipe[1] <= vga_hblank_in_r ? 11'd0 : active_x;
-			for (int i=2; i<=33; i++)
-				present_x_pipe[i] <= present_x_pipe[i-1];
-
 			ax_valid_pipe[1] <= !vga_hblank_in_r;
 			for (int i=2; i<=33; i++)
 				ax_valid_pipe[i] <= ax_valid_pipe[i-1];
-
-			pixel_valid_pipe[1] <= !vga_hblank_in_r;
-			for (int i=2; i<=33; i++)
-				pixel_valid_pipe[i] <= pixel_valid_pipe[i-1];
-
-			active_hblank_pipe[1] <= vga_hblank_in_r;
-			for (int i=2; i<=30; i++)
-				active_hblank_pipe[i] <= active_hblank_pipe[i-1];
 		end
 	end
 
-	// Source register
 	logic [7:0] source_r, source_g, source_b;
 
 	always_ff @(posedge clk_sys) begin
@@ -556,7 +540,7 @@ module vfb_filter (
 		end
 	end
 
-	// Base image register and bloom source curve lookup
+	// Register primary RGB and look up the bloom source.
 	logic [23:0] base_24;
 	logic [7:0] bloom_curve_r, bloom_curve_g, bloom_curve_b;
 
@@ -570,7 +554,7 @@ module vfb_filter (
 		end
 	end
 
-	// Base Image Vertical Delay (6 lines)
+	// Delay primary RGB by six lines.
 	(* ramstyle = "M10K, no_rw_check" *) logic [23:0] base_lb_0 [0:1471];
 	(* ramstyle = "M10K, no_rw_check" *) logic [23:0] base_lb_1 [0:1471];
 	(* ramstyle = "M10K, no_rw_check" *) logic [23:0] base_lb_2 [0:1471];
@@ -597,7 +581,7 @@ module vfb_filter (
 			base_lb_4_ram <= base_lb_4[ax_pipe[1]];
 			base_lb_5_ram <= base_lb_5[ax_pipe[1]];
 
-			if (!active_hblank_pipe[2])
+			if (ax_valid_pipe[2])
 				base_lb_0[ax_pipe[2]] <= base_24;
 
 			if (base_cascade_valid) begin
@@ -618,29 +602,29 @@ module vfb_filter (
 		end
 	end
 
-	// Bloom source gain
+	// Apply bloom source gain.
 	logic [23:0] bloom_src;
 	always_ff @(posedge clk_sys) begin
 		if (ce_pix) begin
 			bloom_src[23:16] <=
-				apply_curve_gain(bloom_curve_r, bloom_curve_gain);
+				apply_curve_gain(bloom_curve_r, bloom_curve_gain_q);
 			bloom_src[15:8] <=
-				apply_curve_gain(bloom_curve_g, bloom_curve_gain);
+				apply_curve_gain(bloom_curve_g, bloom_curve_gain_q);
 			bloom_src[7:0] <=
-				apply_curve_gain(bloom_curve_b, bloom_curve_gain);
+				apply_curve_gain(bloom_curve_b, bloom_curve_gain_q);
 		end
 	end
 
-	// Bloom Blur Passes
-	logic [10:0] hc_p1, hc_p2, hc_p3;
-	logic hb_p1, hb_p2, hb_p3;
+	// Three bloom passes.
+	logic [10:0] hc_p1, hc_p2;
+	logic hb_p1, hb_p2;
 	logic [23:0] b_p1, b_p2, b_p3;
 
 	vfb_blur bloom_pass1 (.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset), .active_x_in(ax_pipe[3]), .hblank_in(hb_pipe[3]), .enable(en_p1), .rgb_in(bloom_src), .active_x_out(hc_p1), .hblank_out(hb_p1), .rgb_out(b_p1));
 	vfb_blur bloom_pass2 (.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset), .active_x_in(hc_p1), .hblank_in(hb_p1), .enable(en_p2), .rgb_in(b_p1), .active_x_out(hc_p2), .hblank_out(hb_p2), .rgb_out(b_p2));
-	vfb_blur bloom_pass3 (.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset), .active_x_in(hc_p2), .hblank_in(hb_p2), .enable(en_p3), .rgb_in(b_p2), .active_x_out(hc_p3), .hblank_out(hb_p3), .rgb_out(b_p3));
+	vfb_blur bloom_pass3 (.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset), .active_x_in(hc_p2), .hblank_in(hb_p2), .enable(en_p3), .rgb_in(b_p2), .active_x_out(), .hblank_out(), .rgb_out(b_p3));
 
-	// Bloom compensation scale
+	// Scale the bloom result.
 	logic [7:0] bloom_comp_r, bloom_comp_g, bloom_comp_b;
 	always_ff @(posedge clk_sys) begin
 		if (ce_pix) begin
@@ -668,7 +652,7 @@ module vfb_filter (
 		end
 	end
 
-	// Base/bloom composite
+	// Combine primary and bloom by channel maximum.
 	logic [7:0] comp_r, comp_g, comp_b;
 	always_ff @(posedge clk_sys) begin
 		if (ce_pix) begin
@@ -698,12 +682,11 @@ module vfb_filter (
 			clb_0 <= comp_lb_0[ax_pipe[COMP_SERVICE_STAGE]];
 			clb_1 <= comp_lb_1[ax_pipe[COMP_SERVICE_STAGE]];
 			clb_2 <= comp_lb_2[ax_pipe[COMP_SERVICE_STAGE]];
-			// Final output read: use the presentation address cadence. The
-			// service cascade only advances on real active pixels, so it never
-			// fabricates edge/tail samples during blanking.
-			clb_3 <= comp_lb_3[present_x_pipe[COMP_PRESENT_READ_STAGE]];
+			// Read the final delayed row at the output position. Advance the
+			// line buffers only for active pixels.
+			clb_3 <= comp_lb_3[ax_pipe[COMP_PRESENT_READ_STAGE]];
 
-			if (pixel_valid_pipe[COMP_WRITE_STAGE])
+			if (ax_valid_pipe[COMP_WRITE_STAGE])
 				comp_lb_0[ax_pipe[COMP_WRITE_STAGE]] <= {comp_r, comp_g, comp_b};
 
 			if (comp_cascade_valid) begin
@@ -719,15 +702,15 @@ module vfb_filter (
 	assign comp_g_d1 = clb_3[15:8];
 	assign comp_b_d1 = clb_3[7:0];
 
-	// Registered output and timing pipeline
-	logic [8:0] mix_r, mix_g, mix_b;
+	// Register RGB and timing outputs.
+	logic [7:0] mix_r, mix_g, mix_b;
 	logic mix_hs, mix_vs, mix_hblank, mix_vblank;
 	logic out_hs, out_vs, out_hblank, out_vblank;
 	always_ff @(posedge clk_sys) begin
 		if (reset) begin
-			mix_r <= 9'd0;
-			mix_g <= 9'd0;
-			mix_b <= 9'd0;
+			mix_r <= 8'd0;
+			mix_g <= 8'd0;
+			mix_b <= 8'd0;
 			mix_hs <= 1'b1;
 			mix_vs <= 1'b1;
 			mix_hblank <= 1'b1;
@@ -744,9 +727,9 @@ module vfb_filter (
 			VGA_HBLANK_OUT <= 1'b1;
 			VGA_VBLANK_OUT <= 1'b1;
 		end else if (ce_pix) begin
-			mix_r <= {1'b0, comp_r_d1};
-			mix_g <= {1'b0, comp_g_d1};
-			mix_b <= {1'b0, comp_b_d1};
+			mix_r <= comp_r_d1;
+			mix_g <= comp_g_d1;
+			mix_b <= comp_b_d1;
 			mix_hs <= hs_pipe[COMP_OUTPUT_SYNC_STAGE];
 			mix_vs <= vs_pipe[COMP_OUTPUT_SYNC_STAGE];
 			mix_hblank <= hb_pipe[COMP_OUTPUT_SYNC_STAGE];
@@ -757,9 +740,9 @@ module vfb_filter (
 			out_hblank <= mix_hblank;
 			out_vblank <= mix_vblank;
 
-			VGA_R_OUT <= (mix_r > 255) ? 8'd255 : mix_r[7:0];
-			VGA_G_OUT <= (mix_g > 255) ? 8'd255 : mix_g[7:0];
-			VGA_B_OUT <= (mix_b > 255) ? 8'd255 : mix_b[7:0];
+			VGA_R_OUT <= mix_r;
+			VGA_G_OUT <= mix_g;
+			VGA_B_OUT <= mix_b;
 			VGA_HS_OUT <= out_hs;
 			VGA_VS_OUT <= out_vs;
 			VGA_HBLANK_OUT <= out_hblank;

@@ -2,24 +2,25 @@
 // Decoder for the line-local RLE16 word format.
 // written 2026 by Videodr0me
 //
-// Implemented RLE16 control table:
-//   0x0: full RGB literal, word0 [11:4]=R [3:0]=count-1,
-//        word1 [15:8]=G [7:0]=B
-//   0x1..0x7: masked intensity run, opcode bits are {R,G,B} mask,
-//        [11:4]=intensity [3:0]=count-1
-//   0x8: repeat previous decoded RGB, [11:0]=count-1
-//   0x9..0xE: main-ceiling spill run for masks 001..110:
-//        channels selected by opcode bits [2:0] decode to 232,
-//        remaining channels decode to [11:4] spill intensity,
-//        [3:0]=count-1. Examples:
-//        mask 110, spill 49 => RGB=(232,232,49)
-//        mask 001, spill 129 => RGB=(129,129,232)
-//   0xF: black run, [11:0]=count-1. Odd SDR packer filler words are excluded
-//        by the descriptor word count before they reach the decoder.
+// A nonzero high nibble is a compact color run:
+//   CCCC LLLLLLLL NNNN
+//   CCCC = {strong red, fine red, green, blue}
+//   L     = channel level
+//   N     = count-1, for counts 1..16
 //
-// Compressed words are parsed into a small run FIFO ahead of the pixel
-// consumer. This keeps two-word full-RGB literals away from the pixel edge:
-// rgb_out is always the current head pixel before advance is asserted.
+// With fine red clear, selected channels decode directly to L. With fine red
+// set, F=round(13*L/64), M=L-F, red is F or L according to the red bits, and
+// selected green/blue channels decode to M.
+//
+// High nibble 0000 identifies these special forms:
+//   0000 00 NNNNNNNNNN: black, count 1..1024
+//   0000 01 NNNNNNNNNN: repeat previous RGB, count 1..1024
+//   0000 10 RRRRRRRR NN: literal word 0, count 1..4
+//                        word 1 is GGGGGGGG BBBBBBBB
+//   0000 11 MMM SSSSSSS: one 232-ceiling spill pixel
+//                        MMM selects channels at 232; others use S (0..64)
+//
+// Complete one- or two-word codes enter a small run FIFO.
 // ============================================================================
 
 module vfb_rle_decoder (
@@ -28,7 +29,7 @@ module vfb_rle_decoder (
 
 	input  logic        token_valid,
 	output logic        token_ready,
-	input  logic [15:0] token_data,
+	input  logic [31:0] token_data,
 	input  logic        token_eol,
 
 	input  logic        advance,
@@ -42,15 +43,6 @@ module vfb_rle_decoder (
 	localparam integer RUN_FIFO_AW = 4;
 	localparam logic [7:0] SPILL_MAIN_CEIL = 8'd232;
 
-	typedef enum logic {
-		PARSE_WORD,
-		PARSE_LITERAL1
-	} parse_state_t;
-
-	parse_state_t parse_state;
-	logic [7:0] literal_r;
-	logic [3:0] literal_count_m1;
-	logic literal_first_eol;
 	logic [23:0] previous_rgb;
 
 	logic [23:0] fifo_rgb [0:RUN_FIFO_DEPTH-1];
@@ -64,28 +56,46 @@ module vfb_rle_decoder (
 	logic [12:0] run_remaining;
 	logic run_eol;
 
-	function automatic [23:0] masked_rgb(
-		input logic [2:0] mask,
-		input logic [7:0] intensity
+	function automatic [23:0] compact_rgb(
+		input logic [3:0] color,
+		input logic [7:0] level
 	);
+		logic [12:0] fine_scaled;
+		logic [7:0] fine_level;
+		logic [7:0] main_level;
 		begin
-			masked_rgb = {
-				mask[2] ? intensity : 8'd0,
-				mask[1] ? intensity : 8'd0,
-				mask[0] ? intensity : 8'd0
-			};
+			fine_scaled =
+				({5'd0, level} << 3) +
+				({5'd0, level} << 2) +
+				{5'd0, level} + 13'd32;
+			fine_level = fine_scaled[12:6];
+			main_level = level - fine_level;
+
+			if (color[2]) begin
+				compact_rgb = {
+					color[3] ? level : fine_level,
+					color[1] ? main_level : 8'd0,
+					color[0] ? main_level : 8'd0
+				};
+			end else begin
+				compact_rgb = {
+					color[3] ? level : 8'd0,
+					color[1] ? level : 8'd0,
+					color[0] ? level : 8'd0
+				};
+			end
 		end
 	endfunction
 
 	function automatic [23:0] spill_rgb(
 		input logic [2:0] mask,
-		input logic [7:0] spill
+		input logic [6:0] spill
 	);
 		begin
 			spill_rgb = {
-				mask[2] ? SPILL_MAIN_CEIL : spill,
-				mask[1] ? SPILL_MAIN_CEIL : spill,
-				mask[0] ? SPILL_MAIN_CEIL : spill
+				mask[2] ? SPILL_MAIN_CEIL : {1'b0, spill},
+				mask[1] ? SPILL_MAIN_CEIL : {1'b0, spill},
+				mask[0] ? SPILL_MAIN_CEIL : {1'b0, spill}
 			};
 		end
 	endfunction
@@ -94,8 +104,12 @@ module vfb_rle_decoder (
 		count_short = {9'd0, count_m1} + 13'd1;
 	endfunction
 
-	function automatic [12:0] count_long(input logic [11:0] count_m1);
-		count_long = {1'b0, count_m1} + 13'd1;
+	function automatic [12:0] count_literal(input logic [1:0] count_m1);
+		count_literal = {11'd0, count_m1} + 13'd1;
+	endfunction
+
+	function automatic [12:0] count_long(input logic [9:0] count_m1);
+		count_long = {3'd0, count_m1} + 13'd1;
 	endfunction
 
 	wire fifo_full = (fifo_used == RUN_FIFO_DEPTH);
@@ -108,9 +122,8 @@ module vfb_rle_decoder (
 	logic [12:0] fifo_push_count;
 	logic fifo_push_eol;
 
-	// Holding the outer FIFO head for one cycle when this queue is full keeps
-	// pixel advance out of the upstream FIFO pointer path. When an advance
-	// consumes the FIFO head, token intake resumes on the following clock.
+	// When this FIFO is full, leave the source word in place until one run
+	// finishes. Input resumes on the following clock.
 	assign token_ready = !fifo_full;
 
 	always_comb begin
@@ -120,59 +133,54 @@ module vfb_rle_decoder (
 		fifo_push_eol = 1'b0;
 
 		if (token_valid && token_ready) begin
-			case (parse_state)
-				PARSE_WORD: begin
-					case (token_data[15:12])
-						4'h0: begin
-							// First half of a full RGB literal.
-						end
-						4'h1, 4'h2, 4'h3, 4'h4,
-						4'h5, 4'h6, 4'h7: begin
-							fifo_push = 1'b1;
-							fifo_push_rgb =
-								masked_rgb(token_data[14:12],
-								           token_data[11:4]);
-							fifo_push_count =
-								count_short(token_data[3:0]);
-							fifo_push_eol = token_eol;
-						end
-						4'h8: begin
-							fifo_push = 1'b1;
-							fifo_push_rgb = previous_rgb;
-							fifo_push_count =
-								count_long(token_data[11:0]);
-							fifo_push_eol = token_eol;
-						end
-						4'h9, 4'ha, 4'hb, 4'hc,
-						4'hd, 4'he: begin
-							fifo_push = 1'b1;
-							fifo_push_rgb =
-								spill_rgb(token_data[14:12],
-								          token_data[11:4]);
-							fifo_push_count =
-								count_short(token_data[3:0]);
-							fifo_push_eol = token_eol;
-						end
-						4'hf: begin
-							fifo_push = 1'b1;
-							fifo_push_rgb = 24'd0;
-							fifo_push_count =
-								count_long(token_data[11:0]);
-							fifo_push_eol = token_eol;
-						end
-						default: begin
-						end
-					endcase
-				end
+			if (token_data[15:12] != 4'h0) begin
+				fifo_push = 1'b1;
+				fifo_push_rgb =
+					compact_rgb(token_data[15:12],
+					            token_data[11:4]);
+				fifo_push_count =
+					count_short(token_data[3:0]);
+				fifo_push_eol = token_eol;
+			end else begin
+				case (token_data[11:10])
+					2'b00: begin
+						fifo_push = 1'b1;
+						fifo_push_rgb = 24'd0;
+						fifo_push_count =
+							count_long(token_data[9:0]);
+						fifo_push_eol = token_eol;
+					end
 
-				PARSE_LITERAL1: begin
-					fifo_push = 1'b1;
-					fifo_push_rgb = {literal_r, token_data[15:8],
-					                 token_data[7:0]};
-					fifo_push_count = count_short(literal_count_m1);
-					fifo_push_eol = token_eol || literal_first_eol;
-				end
-			endcase
+					2'b01: begin
+						fifo_push = 1'b1;
+						fifo_push_rgb = previous_rgb;
+						fifo_push_count =
+							count_long(token_data[9:0]);
+						fifo_push_eol = token_eol;
+					end
+
+					2'b10: begin
+						fifo_push = 1'b1;
+						fifo_push_rgb = {
+							token_data[9:2],
+							token_data[31:24],
+							token_data[23:16]
+						};
+						fifo_push_count =
+							count_literal(token_data[1:0]);
+						fifo_push_eol = token_eol;
+					end
+
+					2'b11: begin
+						fifo_push = 1'b1;
+						fifo_push_rgb =
+							spill_rgb(token_data[9:7],
+							          token_data[6:0]);
+						fifo_push_count = 13'd1;
+						fifo_push_eol = token_eol;
+					end
+				endcase
+			end
 		end
 	end
 
@@ -187,10 +195,6 @@ module vfb_rle_decoder (
 
 	always_ff @(posedge clk_sys) begin
 		if (reset) begin
-			parse_state <= PARSE_WORD;
-			literal_r <= 8'd0;
-			literal_count_m1 <= 4'd0;
-			literal_first_eol <= 1'b0;
 			previous_rgb <= 24'd0;
 			fifo_wr_ptr <= '0;
 			fifo_rd_ptr <= '0;
@@ -206,16 +210,6 @@ module vfb_rle_decoder (
 			line_done <= 1'b0;
 
 			if (token_valid && token_ready) begin
-				if (parse_state == PARSE_WORD &&
-				    token_data[15:12] == 4'h0) begin
-					parse_state <= PARSE_LITERAL1;
-					literal_r <= token_data[11:4];
-					literal_count_m1 <= token_data[3:0];
-					literal_first_eol <= token_eol;
-				end else begin
-					parse_state <= PARSE_WORD;
-				end
-
 				if (fifo_push) begin
 					fifo_rgb[fifo_wr_ptr] <= fifo_push_rgb;
 					fifo_count[fifo_wr_ptr] <= fifo_push_count;

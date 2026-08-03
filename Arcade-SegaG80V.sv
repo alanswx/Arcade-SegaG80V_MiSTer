@@ -5,7 +5,7 @@
 //  Original hardware by Sega/Gremlin, 1981-1982.
 //
 //  Vector renderer and CRT pipeline by Videodr0me (videodr0me_fb, from
-//  Arcade-Asteroids_MiSTer). This top level follows that core's structure.
+//  Arcade-MajorHavoc_MiSTer). This top level follows that core's structure.
 //
 //  This program is free software under the GNU General Public License v3.
 //============================================================================
@@ -34,9 +34,11 @@ module emu
 	logic   [7:0] ioctl_dout;
 	logic  [15:0] ioctl_index;
 
-	logic clk_12;
+	logic clk_vec;      // 12.096 MHz vector-generator / machine domain
 	logic clk_125;
+	logic clk_50;
 	logic pll_locked;
+	logic vec_pll_locked;
 
 	logic         video_is_720p;
 	logic   [7:0] game_id = 8'd0;
@@ -58,6 +60,9 @@ module emu
 		"P1O[46:44],Bloom Curve,0,1,2,3,4,5,6,7;",
 		"P1O[49:47],Halo Filter,Off,1,2,3,4,5,6,7;",
 		"P1O[51:50],Halo Spread,Original,Wide,Wider,Widest;",
+		"P1O[65:63],Halo Curve,0,1,2,3,4,5,6,7;",
+		"P1O[67:66],Halo Knee,0,1,2,3;",
+		"P1O[68],Expand Highlights,Off,On;",
 		"P1-;",
 		"P1O[53:52],Phosphor Decay,Off,LUT A,LUT B,LUT C;",
 		"P1O[55:54],Inter-frame Phosphor,Off,LUT A,LUT B,LUT C;",
@@ -96,7 +101,7 @@ module emu
 	};
 
 	hps_io #(.CONF_STR(CONF_STR)) hps_io_inst (
-		.clk_sys(clk_12),
+		.clk_sys(clk_vec),
 		.HPS_BUS(HPS_BUS),
 		.joystick_0(joystick_0),
 		.joystick_1(joystick_1),
@@ -120,11 +125,17 @@ module emu
 	pll pll (
 		.refclk(CLK_50M),
 		.rst(1'b0),
-		.outclk_0(),
-		.outclk_1(clk_12),
-		.outclk_2(),
-		.outclk_3(clk_125),
+		.outclk_0(clk_125),
+		.outclk_1(),
+		.outclk_2(clk_50),
 		.locked(pll_locked)
+	);
+
+	sega_clocks machine_clocks (
+		.refclk(CLK_50M),
+		.reset(1'b0),
+		.clk_vec(clk_vec),
+		.locked(vec_pll_locked)
 	);
 
 	//============================================================
@@ -145,7 +156,7 @@ module emu
 		dip_switch[7] = 8'hFF;
 	end
 
-	always @(posedge clk_12) begin
+	always @(posedge clk_vec) begin
 		if (ioctl_wr && (ioctl_index == 16'd1))
 			game_id <= ioctl_dout;
 		if (ioctl_wr && (ioctl_index == 16'd254) && !ioctl_addr[26:3])
@@ -155,7 +166,8 @@ module emu
 	wire rom_download     = ioctl_download && (ioctl_index == 16'd0);
 	wire variant_download = ioctl_download && (ioctl_index == 16'd1);
 	wire machine_reset    = RESET || status[0] || buttons[1] ||
-	                        rom_download || variant_download || !pll_locked;
+	                        rom_download || variant_download ||
+	                        !pll_locked || !vec_pll_locked;
 
 	//============================================================
 	// Machine
@@ -204,7 +216,7 @@ module emu
 	wire dpad_l = joystick_0[1] | joystick_1[1];
 	wire dpad_r = joystick_0[0] | joystick_1[0];
 
-	always_ff @(posedge clk_12) begin
+	always_ff @(posedge clk_vec) begin
 		spin_stb   <= 1'b0;
 		spin_tog_d <= spin_tog;
 		spin_div   <= spin_div + 16'd1;
@@ -224,7 +236,7 @@ module emu
 	wire  [7:0] raw_video_r, raw_video_g, raw_video_b;
 
 	pause #(8, 8, 8, 12) pause_inst (
-		.clk_sys(clk_12),
+		.clk_sys(clk_vec),
 		.reset(machine_reset),
 		.user_button(joystick_0[11] | joystick_1[11]),   // pause
 		.pause_request(1'b0),
@@ -236,12 +248,13 @@ module emu
 	);
 
 	wire [10:0] audio_ay;
+	wire       vec_tick;
 	wire [9:0] vec_x, vec_y;
 	wire [5:0] vec_colour;
 	wire       vec_beam, vec_valid, vec_frame_done, drawing;
 
 	segag80v machine (
-		.clk_12(clk_12),
+		.clk_vec(clk_vec),
 		.reset(machine_reset),
 		.pause(pause_cpu),
 		.cfg_chip(cfg_chip), .cfg_usb(cfg_usb), .cfg_fc(cfg_fc),
@@ -255,7 +268,7 @@ module emu
 		.coin_a(coin_a), .coin_b(coin_b), .service(service),
 		.vec_x(vec_x), .vec_y(vec_y), .vec_colour(vec_colour),
 		.vec_beam(vec_beam), .vec_valid(vec_valid),
-		.drawing(drawing), .frame_done(vec_frame_done),
+		.drawing(drawing), .frame_done(vec_frame_done), .vec_tick(vec_tick),
 		.snd_wr(), .snd_sel(), .ay_wr(), .ay_port(),
 		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(), .snd_data(),
 		.audio_ay(audio_ay)
@@ -276,7 +289,8 @@ module emu
 	assign SDRAM_DQMH = sdram_dqm[1];
 
 	sega_video video (
-		.clk_12(clk_12),
+		.clk_vec(clk_vec),
+		.vec_tick(vec_tick),
 		.clk_125(clk_125),
 		.reset(machine_reset),
 		.hdmi_height(HDMI_HEIGHT),
@@ -297,6 +311,9 @@ module emu
 		.osd_phosphor_mode(status[53:52]),
 		.osd_inter_frame_phosphor_mode(status[55:54]),
 		.osd_halo_spread(status[51:50]),
+		.osd_halo_curve(status[65:63]),
+		.osd_halo_knee(status[67:66]),
+		.osd_expand_highlights(status[68]),
 		.osd_color_space(status[56]),
 		.osd_presentation_color(status[59:57]),
 		.osd_slot_mask(status[60]),

@@ -1,15 +1,15 @@
 // ============================================================================
 // Fixed-priority DDRAM burst arbiter.
 // written 2026 by Videodr0me
-// Priority is readout, flush, fill, then the background compositor. The
-// arbiter routes requests and drains in-flight bursts across reset.
+// Priority is readout, flush, fill, then composition. Reset waits for an
+// active transaction to finish or time out.
 // ============================================================================
 
 module vfb_ddr_arbiter (
 	input  logic        clk_sys,
 	input  logic        rst_sys,
 
-	// DDRAM Avalon-MM interface
+	// DDRAM interface
 	input  logic        DDRAM_BUSY,
 	output logic [7:0]  DDRAM_BURSTCNT,
 	output logic [28:0] DDRAM_ADDR,
@@ -20,9 +20,9 @@ module vfb_ddr_arbiter (
 	input  logic [63:0] DDRAM_DOUT,
 	input  logic        DDRAM_DOUT_READY,
 
-	// Requester interfaces
+	// Client interfaces
 
-	// 1. VGA Readout (Read, Highest Priority)
+	// Framebuffer readout (highest priority)
 	input  logic        readout_ready,
 	output logic        readout_grant,
 	input  logic [28:0] readout_addr,
@@ -30,7 +30,7 @@ module vfb_ddr_arbiter (
 	output logic [63:0] readout_data,
 	output logic        readout_data_valid,
 
-	// 3. Cache Fill (Read)
+	// Cache fill
 	input  logic        fill_ready,
 	output logic        fill_grant,
 	input  logic [28:0] fill_addr,
@@ -38,7 +38,7 @@ module vfb_ddr_arbiter (
 	output logic [63:0] fill_data,
 	output logic        fill_data_valid,
 
-	// 2. Cache Flush (Write)
+	// Cache flush
 	input  logic        flush_ready,
 	output logic        flush_grant,
 	output logic        flush_done,         // Pulse: last beat accepted
@@ -48,7 +48,7 @@ module vfb_ddr_arbiter (
 	input  logic [7:0]  flush_be,           // Current beat byte enables
 	output wire         flush_advance,      // Beat accepted; present next beat
 
-	// 4. Inter-frame compositor (lowest priority)
+	// Composition (lowest priority)
 	input  logic        compose_read_ready,
 	output logic        compose_read_grant,
 	input  logic [28:0] compose_read_addr,
@@ -80,9 +80,9 @@ module vfb_ddr_arbiter (
 
 	arb_state_t arb_state = ARB_IDLE;
 	logic [8:0] burst_counter = 0;
-	logic [8:0] burst_target  = 0;    // Latched burstcnt for drain tracking
+	logic [8:0] burst_target  = 0;    // Beats in the current burst
 
-	// Synchronize reset and retain it while an in-flight burst drains.
+	// Synchronize reset and keep it active until the current burst finishes.
 	logic [1:0] rst_sync = 2'b11;
 	always_ff @(posedge clk_sys) rst_sync <= {rst_sync[0], rst_sys};
 	wire rst_ext = rst_sync[1];
@@ -92,12 +92,11 @@ module vfb_ddr_arbiter (
 	logic reset_busy_q = 1'b1;
 	always_ff @(posedge clk_sys) reset_busy_q <= rst_active;
 
-	// Internal WE/RD signals (gated by safety clamp on output)
+	// Read and write controls before address and reset checks.
 	logic internal_rd = 0;
 	logic internal_we = 0;
 
-	// Safety Clamp: Limit access to our framebuffer region
-	// Five 0x110000-word framebuffer strides beginning at 0x06000000.
+	// Limit access to the five framebuffer regions.
 	wire safe_address = (DDRAM_ADDR >= 29'h06000000) &&
 	                    (DDRAM_ADDR <= 29'h0654ffff);
 	assign DDRAM_WE = internal_we && safe_address && !rst_active;
@@ -138,7 +137,7 @@ module vfb_ddr_arbiter (
 		(&reset_drain_wdog);
 
 	always_ff @(posedge clk_sys) begin
-		// Retain reset until the active burst reaches a safe boundary.
+		// Finish the active burst before resetting the controller.
 		if (rst_ext) begin
 			if (arb_state != ARB_IDLE) reset_pending <= 1;
 		end else if (arb_state == ARB_IDLE) begin
@@ -154,7 +153,7 @@ module vfb_ddr_arbiter (
 			reset_drain_wdog <= '0;
 		end
 
-		// Default-clear one-shot pulses
+		// Pulses remain low unless set below.
 		readout_grant <= 0;
 		fill_grant <= 0;
 		flush_grant <= 0;
@@ -187,7 +186,7 @@ module vfb_ddr_arbiter (
 				burst_counter <= 0;
 
 				if (!rst_active) begin
-					// Fixed-Priority Dispatcher
+					// Choose the highest-priority waiting client.
 					if (readout_ready) begin
 						arb_state <= ARB_READOUT;
 						internal_rd <= 1;
@@ -260,7 +259,7 @@ module vfb_ddr_arbiter (
 					burst_counter <= burst_counter + 1'b1;
 
 					if (burst_counter == burst_target - 1) begin
-						// Last beat accepted
+						// The final beat was accepted.
 						internal_we <= 0;
 						if (!rst_active) flush_done <= 1;
 						arb_state <= ARB_IDLE;

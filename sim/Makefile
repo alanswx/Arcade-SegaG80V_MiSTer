@@ -35,13 +35,13 @@ geometry: obj_geometry/Vsega_geometry
 
 # ---------------------------------------------------------------------------
 
-obj_color6/Vvfb_color6: $(RTL)/videodr0me_fb/vfb_color6.sv tb/tb_color6.cpp
+obj_color6/Vvfb_dac_ladder: $(RTL)/videodr0me_fb/vfb_dac_ladder.sv tb/tb_color6.cpp
 	verilator $(VFLAGS) --Mdir obj_color6 \
-		--top-module vfb_color6 \
-		$(RTL)/videodr0me_fb/vfb_color6.sv tb/tb_color6.cpp
+		--top-module vfb_dac_ladder \
+		$(RTL)/videodr0me_fb/vfb_dac_ladder.sv tb/tb_color6.cpp
 
-color6: obj_color6/Vvfb_color6
-	@./obj_color6/Vvfb_color6
+color6: obj_color6/Vvfb_dac_ladder
+	@./obj_color6/Vvfb_dac_ladder
 
 # ---------------------------------------------------------------------------
 

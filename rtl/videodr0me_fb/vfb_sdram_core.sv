@@ -7,7 +7,7 @@
 // common MiSTer 32 MB SDRAM layout.
 //
 // Consecutive 32-bit accesses to an open row are accepted every two clocks,
-// saturating the 16-bit data bus. All four SDRAM banks retain their active
+// using every 16-bit data-bus cycle. All four SDRAM banks retain their active
 // rows until a row miss or refresh requires precharge.
 // ============================================================================
 
@@ -232,7 +232,7 @@ module vfb_sdram_core #(
 	logic        write_beat_oe;
 	(* preserve, dont_merge *) logic sdram_output_reset_q = 1'b1;
 
-	// Keep the physical DQ output enable on a local reset branch.
+	// Reset the DQ output enable next to its output register.
 	always_ff @(posedge clk_sys) begin
 		sdram_output_reset_q <= reset;
 		if (sdram_output_reset_q)
@@ -323,8 +323,8 @@ module vfb_sdram_core #(
 				default: ;
 			endcase
 
-			// Prepare the SDR write data/DQM/OE one cycle before the pin
-			// registers use it.
+			// Prepare write data, DQM, and output enable one clock before the
+			// pin registers use them.
 			if (state == ST_WRITE0) begin
 				write_beat_data <= req_wdata[31:16];
 				write_beat_dqm  <= ~req_be[3:2];
@@ -354,8 +354,8 @@ module vfb_sdram_core #(
 	(* preserve, dont_merge *) logic [15:0] read_sample_1;
 	logic [15:0] read_sample_2;
 	logic [15:0] read_low;
-	// The SDRAM returns the two BL2 halfwords after CAS latency. The local
-	// isolation register is part of the response assembly latency.
+	// The SDRAM returns two BL2 halfwords after CAS latency. The input register
+	// adds one clock to the assembled response.
 	logic [SDRAM_READ_LATENCY+3:0] read_pipe;
 
 	always_ff @(posedge clk_sys) begin

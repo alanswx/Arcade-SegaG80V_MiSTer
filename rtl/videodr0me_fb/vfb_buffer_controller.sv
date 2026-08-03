@@ -4,9 +4,9 @@
 // Sparse framebuffer ownership controller.
 // written 2026 by Videodr0me
 //
-// Raw frames follow CLEAN -> DRAWING -> DRAWN. With inter-frame phosphor off,
-// DRAWN frames become display eligible at the configured boundary. With it
-// enabled, each raw frame is composed in place before becoming display eligible.
+// Raw frames follow CLEAN -> DRAWING -> DRAWN. With inter-frame decay off,
+// a DRAWN frame can be shown at the selected boundary. With decay enabled,
+// each raw frame is composed before it can be shown.
 // ============================================================================
 
 module vfb_buffer_controller #(
@@ -43,8 +43,7 @@ module vfb_buffer_controller #(
 	output logic                 display_is_composed,
 	output logic                 has_draw_buf,
 	output logic                 raw_frame_dropped,
-	output logic [BUF_IDX_W-1:0] raw_frame_dropped_buf,
-	output logic                 source_overrun
+	output logic [BUF_IDX_W-1:0] raw_frame_dropped_buf
 );
 
 	typedef enum logic [3:0] {
@@ -66,7 +65,13 @@ module vfb_buffer_controller #(
 	logic [BUF_IDX_W-1:0] accumulator_buf;
 	logic                 compose_active;
 	logic                 inter_enabled_q;
-	logic [15:0]          raw_drop_count;
+	logic [1:0]           buffer_mode_q = 2'd0;
+	logic [1:0]           inter_frame_mode_q = 2'd0;
+
+	always_ff @(posedge clk_sys) begin
+		buffer_mode_q <= BUFFER_MODE;
+		inter_frame_mode_q <= inter_frame_mode;
+	end
 
 	logic                 has_display;
 	logic                 has_drawing;
@@ -194,7 +199,6 @@ module vfb_buffer_controller #(
 	assign display_valid = display_valid_reg;
 	assign display_is_composed = display_composed_reg;
 	assign compose_req = compose_active;
-	assign source_overrun = (raw_drop_count != 16'd0);
 
 	always_ff @(posedge clk_sys) begin
 		if (reset) begin
@@ -213,15 +217,15 @@ module vfb_buffer_controller #(
 	logic flush_in_progress;
 	logic flush_pending;
 
-	wire inter_enabled = (inter_frame_mode != 2'd0);
+	wire inter_enabled = (inter_frame_mode_q != 2'd0);
 	wire inter_enable_rise = inter_enabled && !inter_enabled_q;
 	wire inter_enable_fall = !inter_enabled && inter_enabled_q;
 	wire evt_flush_complete = flush_in_progress && flush_done;
 	wire select_vbl_promote_raw = vbl_swap_req &&
-	                              (BUFFER_MODE == 2'd0) &&
+	                              (buffer_mode_q == 2'd0) &&
 	                              !inter_enabled;
 	wire evt_vbl_promote_raw = select_vbl_promote_raw && has_drawn;
-	wire evt_vbl_promote_composed = vbl_swap_req && (BUFFER_MODE != 2'd2) &&
+	wire evt_vbl_promote_composed = vbl_swap_req && (buffer_mode_q != 2'd2) &&
 	                                inter_enabled && accumulator_valid &&
 	                                (buf_state[accumulator_buf] == ST_COMPOSED);
 	wire select_compose_start = inter_enabled && !inter_enable_rise &&
@@ -270,7 +274,6 @@ module vfb_buffer_controller #(
 			accumulator_valid <= 1'b0;
 			accumulator_buf <= '0;
 			inter_enabled_q <= inter_enabled;
-			raw_drop_count <= 16'd0;
 			raw_frame_dropped <= 1'b0;
 			raw_frame_dropped_buf <= '0;
 		end else begin
@@ -279,7 +282,7 @@ module vfb_buffer_controller #(
 			if (evt_drop_raw)
 				raw_frame_dropped_buf <= oldest_drawn_idx;
 
-			if (BUFFER_MODE == 2'd1) begin
+			if (buffer_mode_q == 2'd1) begin
 				if (vbl_swap_req && has_drawing)
 					flush_pending <= 1'b1;
 			end else if (eof_token_popped && has_drawing) begin
@@ -301,11 +304,11 @@ module vfb_buffer_controller #(
 					if (!inter_enabled)
 						buf_state[i] <= ST_DRAWN;
 					else
-						buf_state[i] <= (BUFFER_MODE == 2'd2)
+						buf_state[i] <= (buffer_mode_q == 2'd2)
 						              ? ST_DISPLAY : ST_COMPOSED;
 				end else if (evt_compose_complete &&
 				             inter_enabled &&
-				             (BUFFER_MODE == 2'd2) &&
+				             (buffer_mode_q == 2'd2) &&
 				             (buf_state[i] == ST_DISPLAY)) begin
 					buf_state[i] <= ST_DIRTY;
 				end else if (evt_compose_complete && compose_has_source &&
@@ -331,16 +334,16 @@ module vfb_buffer_controller #(
 				end else if (evt_flush_complete &&
 				             (BUF_IDX_W'(i) == internal_buf_draw)) begin
 					buf_state[i] <= inter_enabled ? ST_DRAWN :
-					                ((BUFFER_MODE == 2'd0) ? ST_DRAWN : ST_DISPLAY);
+					                ((buffer_mode_q == 2'd0) ? ST_DRAWN : ST_DISPLAY);
 				end else if (evt_flush_complete && !inter_enabled &&
-				             (BUFFER_MODE != 2'd0) &&
+				             (buffer_mode_q != 2'd0) &&
 				             (buf_state[i] == ST_DISPLAY)) begin
 					buf_state[i] <= ST_DIRTY;
 				end else if (select_compose_start &&
 				             oldest_drawn_onehot[i]) begin
 					buf_state[i] <= ST_COMPOSING;
 				end else if (!inter_enabled && (buf_state[i] == ST_DRAWN) &&
-				             ((BUFFER_MODE != 2'd0) || evt_flush_complete ||
+				             ((buffer_mode_q != 2'd0) || evt_flush_complete ||
 				              evt_vbl_promote_raw)) begin
 					buf_state[i] <= ST_DIRTY;
 				end else if (select_drop_raw &&
@@ -415,9 +418,6 @@ module vfb_buffer_controller #(
 				buffer_is_composed[clean_idx] <= 1'b0;
 			if (evt_clear_complete)
 				buffer_is_composed[clear_buf_idx] <= 1'b0;
-
-			if (evt_drop_raw && raw_drop_count != 16'hffff)
-				raw_drop_count <= raw_drop_count + 16'd1;
 
 			if (evt_assign_draw)
 				internal_buf_draw <= clean_idx;

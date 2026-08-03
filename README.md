@@ -8,13 +8,10 @@ The game module is new; the vector-to-raster renderer and CRT pipeline are
 vendored unmodified. The graft follows the pattern
 [derpyder used for Tempest](https://github.com/derpyder/Arcade-Tempest_MiSTer).
 
-> **Status: buildable, untested on hardware.** The Quartus project, top level
-> and MRAs exist and the whole design elaborates cleanly, but **no bitstream has
-> been built or run on a DE10-Nano yet** — that is the next step, and the first
-> thing likely to need fixing. In simulation the core runs real game ROMs end to
-> end and produces attract screens matching MAME, with a vector-RAM write stream
-> byte-identical to MAME's over 4000 writes. Audio is not implemented.
-> See [Progress](#progress).
+> **Status: running on real hardware.** All five games boot and render on a
+> DE10-Nano. Controls are mapped for every game and Zektor has its PSG; the
+> speech board, Universal Sound Board and the discrete boards are still to do —
+> see [docs/03-audio-plan.md](docs/03-audio-plan.md). See [Progress](#progress).
 
 **No ROMs are included.** Nothing here works without them.
 
@@ -58,9 +55,12 @@ Full hardware notes: [`docs/01-hardware-reference.md`](docs/01-hardware-referenc
 | `rtl/sega_video.sv` — mode timing + geometry + renderer | done, lints clean |
 | `Arcade-SegaG80V.sv` + Quartus project + PLL + SDC | done, elaborates clean |
 | MRAs for all 10 romsets | done, byte-verified against the sim images |
-| Controls / DIPs | Eliminator mapped; other games need per-game bits |
-| Audio (AY-3-8912, speech board, USB, discrete boards) | not started |
-| **Run on real hardware** | **not done** |
+| Controls — all six games, from MAME's INPUT_PORTS | done |
+| Spinner (Zektor, Tac/Scan, Star Trek) | done, untested on hardware |
+| Audio: Zektor AY-3-8912 | done |
+| Audio: speech board, USB, discrete boards | see [docs/03-audio-plan.md](docs/03-audio-plan.md) |
+| DIP switches as MRA `<switches>` | not started |
+| **Runs on real hardware** | **yes** |
 
 No present gate: derpyder's Tempest core needs one because Tempest redraws its
 list ~250x/sec and the framebuffer cuts lists mid-draw. Sega walks the whole
@@ -248,7 +248,9 @@ Research/                pinned upstream commits, transcription notes
 ## Credits
 
 - **Videodr0me** — `videodr0me_fb` vector renderer and CRT pipeline, and the
-  Star Wars / Asteroids cores this is built on.
+  Asteroids / Star Wars / Major Havoc cores this is built on. If you enjoy the
+  vector render effects, please support his work:
+  **[buymeacoffee.com/videodr0me](https://buymeacoffee.com/videodr0me)**
 - **Aaron Giles / MAME** — the gate-level analysis of the Sega vector generator
   in `segag80v_v.cpp`, without which this would be a much longer project.
 - **derpyder** — the Tempest core, which showed how to graft a non-Atari game

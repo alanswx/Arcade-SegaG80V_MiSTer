@@ -1,0 +1,52 @@
+<misterromdescription>
+    <about author="alanswx" webpage="https://github.com/alanswx/Arcade-SegaG80V_MiSTer"/>
+    <name>Star Trek</name>
+    <setname>startrek</setname>
+    <rbf>Arcade-SegaG80V</rbf>
+    <mameversion>0283</mameversion>
+    <year>1982</year>
+    <manufacturer>Sega</manufacturer>
+    <category>Shooter</category>
+    <!-- index 0: 48K program ROM at $0000, sin/cos PROM at $C000 -->
+    <rom index="0" zip="startrek.zip" md5="none">
+        <part name="1873.cpu-u25" crc="be46f5d9"/>
+        <part name="1848.prom-u1" crc="65e3baf3"/>
+        <part name="1849.prom-u2" crc="8169fd3d"/>
+        <part name="1850.prom-u3" crc="78fd68dc"/>
+        <part name="1851.prom-u4" crc="3f55ab86"/>
+        <part name="1852.prom-u5" crc="2542ecfb"/>
+        <part name="1853.prom-u6" crc="75c2526a"/>
+        <part name="1854.prom-u7" crc="096d75d0"/>
+        <part name="1855.prom-u8" crc="bc7b9a12"/>
+        <part name="1856.prom-u9" crc="ed9fe2fb"/>
+        <part name="1857.prom-u10" crc="28699d45"/>
+        <part name="1858.prom-u11" crc="3a7593cb"/>
+        <part name="1859.prom-u12" crc="5b11886b"/>
+        <part name="1860.prom-u13" crc="62eb96e6"/>
+        <part name="1861.prom-u14" crc="99852d1d"/>
+        <part name="1862.prom-u15" crc="76ce27b2"/>
+        <part name="1863.prom-u16" crc="dd92d187"/>
+        <part name="1864.prom-u17" crc="e37d3a1e"/>
+        <part name="1865.prom-u18" crc="b2ec8125"/>
+        <part name="1866.prom-u19" crc="6f188354"/>
+        <part name="1867.prom-u20" crc="b0a3eae8"/>
+        <part name="1868.prom-u21" crc="8b4e2e07"/>
+        <part name="1869.prom-u22" crc="e5663070"/>
+        <part name="1870.prom-u23" crc="4340616d"/>
+        <!-- $C000: sin/cos PROM, X-Y Timing board U39 -->
+        <part name="s-c.xyt-u39" crc="56484d19"/>
+    </rom>
+
+    <!-- index 1: game identifier, decoded by rtl/sega_game_pkg.sv -->
+    <rom index="1">
+        <part>05</part>
+    </rom>
+
+    <!-- index 254: DIP switches. byte 0 = SW1 (read at $F8-$FB bits 3:2),
+         byte 1 = SW2 (coinage, bits 1:0). Both are active low. -->
+    <rom index="254" zip="" type="nonmerged" md5="none">
+        <part>FF 33</part>
+    </rom>
+
+    <buttons names="Fire,Thrust,Start 1,Start 2,Coin,Pause" default="A,B,Start,Select,R,L"/>
+</misterromdescription>

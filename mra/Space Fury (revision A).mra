@@ -1,0 +1,40 @@
+<misterromdescription>
+    <about author="alanswx" webpage="https://github.com/alanswx/Arcade-SegaG80V_MiSTer"/>
+    <name>Space Fury (revision A)</name>
+    <setname>spacfurya</setname>
+    <rbf>Arcade-SegaG80V</rbf>
+    <mameversion>0283</mameversion>
+    <year>1981</year>
+    <manufacturer>Sega</manufacturer>
+    <category>Shooter</category>
+    <parent>spacfury</parent>
+    <!-- index 0: 48K program ROM at $0000, sin/cos PROM at $C000 -->
+    <rom index="0" zip="spacfurya.zip|spacfury.zip" md5="none">
+        <part name="969a.cpu-u25" crc="896a615c"/>
+        <part name="960a.prom-u1" crc="e1ea7964"/>
+        <part name="961a.prom-u2" crc="cdb04233"/>
+        <part name="962a.prom-u3" crc="5f03e632"/>
+        <part name="963a.prom-u4" crc="45a77b44"/>
+        <part name="964a.prom-u5" crc="ba008f8b"/>
+        <part name="965a.prom-u6" crc="78677d31"/>
+        <part name="966a.prom-u7" crc="a8a51105"/>
+        <part name="967a.prom-u8" crc="d60f667d"/>
+        <part name="968a.prom-u9" crc="aea85b6a"/>
+        <part repeat="28672">00</part>
+        <!-- $C000: sin/cos PROM, X-Y Timing board U39 -->
+        <part name="s-c.xyt-u39" crc="56484d19"/>
+    </rom>
+
+    <!-- index 1: game identifier, decoded by rtl/sega_game_pkg.sv -->
+    <rom index="1">
+        <part>02</part>
+    </rom>
+
+    <!-- index 254: DIP switches. byte 0 = SW1 (read at $F8-$FB bits 3:2),
+         byte 1 = SW2 (coinage, bits 1:0). Both are active low. -->
+    <rom index="254" zip="" type="nonmerged" md5="none">
+        <part>FF 33</part>
+    </rom>
+
+    <buttons names="Fire,Thrust,Start 1,Start 2,Coin,Pause" default="A,B,Start,Select,R,L"/>
+</misterromdescription>

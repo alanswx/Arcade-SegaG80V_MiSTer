@@ -8,12 +8,13 @@ The game module is new; the vector-to-raster renderer and CRT pipeline are
 vendored unmodified. The graft follows the pattern
 [derpyder used for Tempest](https://github.com/derpyder/Arcade-Tempest_MiSTer).
 
-> **Status: all five games boot and render.** In simulation the core runs real
-> game ROMs end to end — Z80, security chip, interrupt chain, X-Y boards — and
-> produces attract screens matching MAME. Its vector-RAM write stream is
-> byte-identical to MAME's over 4000 writes. There is no bitstream yet: the
-> MiSTer top level, controls/MRAs and audio are still to come. See
-> [Progress](#progress).
+> **Status: buildable, untested on hardware.** The Quartus project, top level
+> and MRAs exist and the whole design elaborates cleanly, but **no bitstream has
+> been built or run on a DE10-Nano yet** — that is the next step, and the first
+> thing likely to need fixing. In simulation the core runs real game ROMs end to
+> end and produces attract screens matching MAME, with a vector-RAM write stream
+> byte-identical to MAME's over 4000 writes. Audio is not implemented.
+> See [Progress](#progress).
 
 **No ROMs are included.** Nothing here works without them.
 
@@ -52,11 +53,14 @@ Full hardware notes: [`docs/01-hardware-reference.md`](docs/01-hardware-referenc
 | `rtl/sega_ports.sv` — LS253 matrix, spinner, elim4, multiplier | **done, verified** |
 | `rtl/segag80v_cpu.sv` — Z80, memory/IO map, wait states, IRQ chain | **done, verified** |
 | `rtl/videodr0me_fb/vfb_color6.sv` — 6-bit colour repack | **done, verified** |
-| `rtl/sega_geometry.sv` — coordinate map + orientation | done, lints clean |
-| `rtl/segag80v.sv` — game module wiring CPU + X-Y + renderer | done, lints clean |
-| MiSTer top level (`Arcade-SegaG80V.sv`), OSD, MRAs | not started |
-| Controls, DIPs | not started |
+| `rtl/sega_geometry.sv` — coordinate map + orientation | **done, verified** |
+| `rtl/segag80v.sv` — machine (CPU + X-Y + ROM) | done, lints clean |
+| `rtl/sega_video.sv` — mode timing + geometry + renderer | done, lints clean |
+| `Arcade-SegaG80V.sv` + Quartus project + PLL + SDC | done, elaborates clean |
+| MRAs for all 10 romsets | done, byte-verified against the sim images |
+| Controls / DIPs | Eliminator mapped; other games need per-game bits |
 | Audio (AY-3-8912, speech board, USB, discrete boards) | not started |
+| **Run on real hardware** | **not done** |
 
 No present gate: derpyder's Tempest core needs one because Tempest redraws its
 list ~250x/sec and the framebuffer cuts lists mid-draw. Sega walks the whole
@@ -75,6 +79,7 @@ make ports      # LS253 matrix, spinner, elim4 demux, multiplier vs MAME
 make color6     # 6-bit colour resolution, all 64 colours x 512 intensities
 make xy         # vector generator vs the MAME-derived golden model
 make xy1        # same, with the alternate phase-clock reading
+make geometry   # vector field -> framebuffer coordinate map
 make cpu        # hand-assembled Z80 code through the real tv80 core
 make boot       # boot all six real game ROMs end to end
 ```
@@ -185,6 +190,39 @@ the games poll stays asserted.
 It is a parameter (`PHASE_CLKS`) and both readings pass their tests, so the
 decision can wait until it can be measured against a booting game.
 
+## Building
+
+Quartus 17.0.x Lite, the standard MiSTer toolchain. Open
+`Arcade-SegaG80V.qpf` and compile, or:
+
+```
+quartus_sh --flow compile Arcade-SegaG80V
+```
+
+The output is `output_files/Arcade-SegaG80V.rbf`. Copy it to `_Arcade/cores/`
+on the SD card and put the `.mra` files in `_Arcade/`.
+
+Requires the **32 MB SDRAM module** in addition to DDR3: `videodr0me_fb` keeps
+its halo-alignment delay line in SDRAM.
+
+MRAs are generated from the MAME driver so filenames and CRCs cannot drift:
+
+```
+python3 sim/tools/make_mra.py <path-to>/segag80v.cpp mra
+```
+
+`sim/tools/make_mra.py` and `sim/tools/build_rom.py` emit the same byte layout,
+so what the MRA assembles on hardware is exactly what the simulation boots:
+
+```
+0x0000-0xBFFF   48K program ROM
+0xC000-0xC3FF   s-c.xyt-u39 sin/cos PROM
+```
+
+MRA `index 1` carries a single game-identifier byte; `rtl/sega_game_pkg.sv`
+decodes it into the security chip, sound board, control panel and screen
+orientation, so a new romset needs only an MRA.
+
 ## Layout
 
 ```
@@ -193,6 +231,13 @@ rtl/xy/sega_xy.sv        vector generator (X-Y Control + X-Y Timing boards)
 rtl/xy/sega_xy_top.sv    + vector RAM and sin/cos PROM
 rtl/sega_ports.sv        LS253 input matrix, spinner, elim4 demux, multiplier
 rtl/segag80v_cpu.sv      Z80, memory/IO map, wait states, interrupt chain
+rtl/segag80v.sv          machine: CPU + X-Y + program ROM
+rtl/sega_video.sv        mode timing, coordinate map, vfb_top
+rtl/sega_geometry.sv     vector field -> framebuffer
+rtl/sega_inputs.sv       control panel wiring
+rtl/sega_game_pkg.sv     per-game configuration from the MRA id byte
+Arcade-SegaG80V.sv       MiSTer top level
+mra/                     one MRA per romset
 rtl/videodr0me_fb/       vendored renderer — do not edit, see Research/
 rtl/{tv80,i8035,jt49}/   vendored CPU and sound cores
 sim/golden/              MAME-derived reference model

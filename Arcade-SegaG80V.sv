@@ -20,7 +20,10 @@ module emu
 	logic [127:0] status;
 	logic  [31:0] joystick_0;
 	logic  [31:0] joystick_1;
-	logic  [15:0] analog_0;
+	logic  [31:0] joystick_2;
+	logic  [31:0] joystick_3;
+	logic   [8:0] spinner_0;
+	logic   [8:0] spinner_1;
 	logic   [1:0] buttons;
 	logic         direct_video;
 	wire   [21:0] gamma_bus;
@@ -78,10 +81,17 @@ module emu
 		"P3-;",
 		"P3-,Hardware analysis from;",
 		"P3-,MAME (Aaron Giles).;",
+		"P3-;",
+		"P3-,If you enjoy the vector;",
+		"P3-,render effects, please;",
+		"P3-,support Videodr0me:;",
+		"P3-;",
+		"P3-,buymeacoffee.com/videodr0me;",
 		"-;",
 		"R[0],Reset;",
-		"J1,Fire,Thrust,Start 1,Start 2,Coin,Pause,Coin 2;",
-		"jn,A,B,Start,Select,R,L,Y;",
+		// bits 4..12: fire1..fire4, start1, start2, coin, pause, service
+		"J1,Fire,Fire 2,Fire 3,Fire 4,Start 1,Start 2,Coin,Pause,Service;",
+		"jn,A,B,X,Y,Start,Select,R,L,;",
 		"V,v0.1.", `BUILD_DATE
 	};
 
@@ -90,7 +100,10 @@ module emu
 		.HPS_BUS(HPS_BUS),
 		.joystick_0(joystick_0),
 		.joystick_1(joystick_1),
-		.joystick_l_analog_0(analog_0),
+		.joystick_2(joystick_2),
+		.joystick_3(joystick_3),
+		.spinner_0(spinner_0),
+		.spinner_1(spinner_1),
 		.buttons(buttons),
 		.forced_scandoubler(),
 		.direct_video(direct_video),
@@ -164,6 +177,7 @@ module emu
 	sega_inputs inputs (
 		.game(game),
 		.joy1(joystick_0), .joy2(joystick_1),
+		.joy3(joystick_2), .joy4(joystick_3),
 		.dsw1(dip_switch[0]), .dsw2(dip_switch[1]),
 		.in_d7d6(in_d7d6), .in_d5d4(in_d5d4),
 		.in_d3d2(in_d3d2), .in_d1d0(in_d1d0),
@@ -171,17 +185,36 @@ module emu
 		.coin_a(coin_a), .coin_b(coin_b), .service(service)
 	);
 
-	// Spinner from the analog stick; the port returns a monotonically
-	// increasing count with direction in bit 0, so only the delta matters.
+	// Spinner (Zektor, Tac/Scan, Star Trek).
+	//
+	// hps_io toggles spinner_N[8] on every update and puts a signed delta in
+	// [7:0], so the toggle is the strobe. The d-pad is folded in as a fallback
+	// for pads without a spinner or mouse: holding left/right emits a small
+	// delta at a fixed rate.
 	logic signed [7:0] spin_delta;
 	logic              spin_stb;
-	logic       [11:0] spin_div;
+	logic              spin_tog_d;
+	logic       [15:0] spin_div;
+
+	wire spin_tog = spinner_0[8] ^ spinner_1[8];
+	wire signed [8:0] spin_sum =
+		$signed({spinner_0[7], spinner_0[7:0]}) +
+		$signed({spinner_1[7], spinner_1[7:0]});
+
+	wire dpad_l = joystick_0[1] | joystick_1[1];
+	wire dpad_r = joystick_0[0] | joystick_1[0];
 
 	always_ff @(posedge clk_12) begin
-		spin_stb <= 1'b0;
-		spin_div <= spin_div + 12'd1;
-		if (spin_div == 12'd0) begin
-			spin_delta <= $signed(analog_0[7:0]) >>> 3;
+		spin_stb   <= 1'b0;
+		spin_tog_d <= spin_tog;
+		spin_div   <= spin_div + 16'd1;
+
+		if (spin_tog != spin_tog_d) begin
+			// real spinner or mouse movement
+			spin_delta <= spin_sum[8] ? 8'sd127 : spin_sum[7:0];
+			spin_stb   <= 1'b1;
+		end else if (spin_div == 16'd0 && (dpad_l ^ dpad_r)) begin
+			spin_delta <= dpad_r ? 8'sd3 : -8'sd3;
 			spin_stb   <= 1'b1;
 		end
 	end
@@ -193,7 +226,7 @@ module emu
 	pause #(8, 8, 8, 12) pause_inst (
 		.clk_sys(clk_12),
 		.reset(machine_reset),
-		.user_button(joystick_0[10] | joystick_1[10]),
+		.user_button(joystick_0[11] | joystick_1[11]),   // pause
 		.pause_request(1'b0),
 		.options({~status[117], status[116]}),
 		.OSD_STATUS(OSD_STATUS),
@@ -202,6 +235,7 @@ module emu
 		.rgb_out(paused_rgb)
 	);
 
+	wire [10:0] audio_ay;
 	wire [9:0] vec_x, vec_y;
 	wire [5:0] vec_colour;
 	wire       vec_beam, vec_valid, vec_frame_done, drawing;
@@ -222,8 +256,9 @@ module emu
 		.vec_x(vec_x), .vec_y(vec_y), .vec_colour(vec_colour),
 		.vec_beam(vec_beam), .vec_valid(vec_valid),
 		.drawing(drawing), .frame_done(vec_frame_done),
-		.snd_wr(), .snd_sel(), .ay_wr(),
-		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(), .snd_data()
+		.snd_wr(), .snd_sel(), .ay_wr(), .ay_port(),
+		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(), .snd_data(),
+		.audio_ay(audio_ay)
 	);
 
 	//============================================================
@@ -313,10 +348,11 @@ module emu
 	assign HDMI_BLACKOUT = 1'b0;
 	assign HDMI_BOB_DEINT = 1'b0;
 
-	// Audio is not implemented yet: the sound, speech and USB boards are the
-	// remaining work. The strobes exist on segag80v and are left unconnected.
-	assign AUDIO_L = 16'd0;
-	assign AUDIO_R = 16'd0;
+	// Only Zektor's PSG so far; the discrete boards, speech board and USB are
+	// the remaining audio work. Scaled to leave headroom for that mix.
+	wire [15:0] audio_mix = {2'd0, audio_ay, 3'd0};
+	assign AUDIO_L = audio_mix;
+	assign AUDIO_R = audio_mix;
 	assign AUDIO_S = 1'b1;
 	assign AUDIO_MIX = 2'b00;
 

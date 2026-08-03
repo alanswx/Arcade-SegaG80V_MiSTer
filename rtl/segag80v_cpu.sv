@@ -64,6 +64,7 @@ module segag80v_cpu #(
 	output logic       snd_wr,      // $3E/$3F latches
 	output logic [1:0] snd_sel,
 	output logic       ay_wr,       // $3C/$3D  (Zektor AY-3-8912)
+	output wire        ay_port,     // 0 = $3C address latch, 1 = $3D data
 	output logic       speech_data_wr,   // $38
 	output logic       speech_ctrl_wr,   // $3B
 	output logic       usb_data_wr,      // $3F   (Star Trek)
@@ -313,6 +314,7 @@ module segag80v_cpu #(
 		endcase
 	end
 	assign io_dout = io_q;
+	assign ay_port = port[0];   // $3C -> 0, $3D -> 1
 
 	always_comb begin
 		cpu_di = 8'hFF;

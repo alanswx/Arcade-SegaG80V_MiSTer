@@ -69,10 +69,14 @@ module segag80v #(
 	output wire        snd_wr,
 	output wire  [1:0] snd_sel,
 	output wire        ay_wr,
+	output wire        ay_port,
 	output wire        speech_data_wr,
 	output wire        speech_ctrl_wr,
 	output wire        usb_data_wr,
-	output wire  [7:0] snd_data
+	output wire  [7:0] snd_data,
+
+	// ---- audio ----
+	output wire [10:0] audio_ay      // Zektor AY-3-8912
 );
 
 	// ------------------------------------------------------------------
@@ -179,6 +183,7 @@ module segag80v #(
 		.snd_wr     (snd_wr),
 		.snd_sel    (snd_sel),
 		.ay_wr      (ay_wr),
+		.ay_port    (ay_port),
 		.speech_data_wr (speech_data_wr),
 		.speech_ctrl_wr (speech_ctrl_wr),
 		.usb_data_wr    (usb_data_wr),
@@ -190,6 +195,34 @@ module segag80v #(
 
 	// the sound latches all sit on the CPU data bus
 	assign snd_data = usb_din;
+
+	// ------------------------------------------------------------------
+	// Zektor AY-3-8912 at $3C/$3D. The other games have no PSG; jt49 is small
+	// enough that it is left instantiated and simply never written.
+	// ------------------------------------------------------------------
+	sega_ay #(.CLK_HZ(CLK_HZ)) ay (
+		.clk      (clk_12),
+		.reset    (reset),
+		.wr       (ay_wr_stb),
+		.addr_sel (ay_port_sel),
+		.din      (snd_data),
+		.audio    (audio_ay)
+	);
+
+	// ay_wr is a level held for the whole I/O cycle, so strobe once at its end
+	// (the same treatment the CPU multiplier needs).
+	logic ay_wr_d;
+	logic ay_port_sel;
+	always_ff @(posedge clk_12) begin
+		if (reset) begin
+			ay_wr_d     <= 1'b0;
+			ay_port_sel <= 1'b0;
+		end else begin
+			ay_wr_d <= ay_wr;
+			if (ay_wr) ay_port_sel <= ay_port;
+		end
+	end
+	wire ay_wr_stb = ~ay_wr && ay_wr_d;
 
 	// ------------------------------------------------------------------
 	// X-Y boards

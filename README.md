@@ -4,9 +4,9 @@ Sega/Gremlin **G-80 X-Y (vector)** arcade hardware for MiSTer FPGA —
 Eliminator, Space Fury, Zektor, Tac/Scan and Star Trek.
 
 The game module is new; the vector-to-raster renderer and CRT pipeline are
-[Videodr0me's `videodr0me_fb`](https://github.com/Videodr0me/Arcade-Asteroids_MiSTer),
-vendored unmodified. The graft follows the pattern
-[derpyder used for Tempest](https://github.com/derpyder/Arcade-Tempest_MiSTer).
+[Videodr0me `videodr0me_fb`](https://github.com/Videodr0me/Arcade-MajorHavoc_MiSTer),
+adapted for the Sega 2-bit-per-gun colour ladder. Inter-frame persistence uses
+the Major Havoc sparse phosphor compositor; there is no separate present gate.
 
 > **Status: running on real hardware.** All five games boot and render on a
 > DE10-Nano. Controls are mapped for every game and Zektor has its PSG; the

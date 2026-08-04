@@ -686,23 +686,44 @@ module vfb_readout #(
 	//
 	// The 3-bit presence mask below still drives the overrange spill case
 	// unchanged: a channel is "lit" when its level is non-zero.
+
+	// Register the Bright-mode shoulder addition separately from the ladder.
+	// At 125 MHz the add followed by the 2-bit resistor weighting is the
+	// critical path. Carry the pixel metadata through the same stage.
+	logic [9:0] dac_total_ladder_q;
+	logic [9:0] expanded_main_q;
+	logic [5:0] dac_color_ladder_q;
+	logic       dac_overrange_ladder_q;
+	logic       dac_active_ladder_q;
+	logic       expand_highlights_ladder_q;
+
+	always_ff @(posedge clk_sys) begin
+		if (ce_pix) begin
+			dac_total_ladder_q <= dac_total_split_q;
+			expanded_main_q <= dac_total_split_q + shoulder_q;
+			dac_color_ladder_q <= dac_color_split_q;
+			dac_overrange_ladder_q <= dac_overrange_split_q;
+			dac_active_ladder_q <= dac_active_split_q;
+			expand_highlights_ladder_q <= expand_highlights_split_q;
+		end
+	end
+
 	wire [2:0] pixel_rgb_comb = {
-		|dac_color_split_q[5:4],
-		|dac_color_split_q[3:2],
-		|dac_color_split_q[1:0]
+		|dac_color_ladder_q[5:4],
+		|dac_color_ladder_q[3:2],
+		|dac_color_ladder_q[1:0]
 	};
 
 	// The ladder itself lives in vfb_dac_ladder so it can be unit-tested.
 	wire [9:0] native_r_w, native_g_w, native_b_w;
 	wire [9:0] sel_r_w, sel_g_w, sel_b_w;
-	wire [9:0] expanded_main_w = dac_total_split_q + shoulder_q;
 
-	vfb_dac_ladder lr (.level(dac_total_split_q), .sel(dac_color_split_q[5:4]), .out(native_r_w));
-	vfb_dac_ladder lg (.level(dac_total_split_q), .sel(dac_color_split_q[3:2]), .out(native_g_w));
-	vfb_dac_ladder lb (.level(dac_total_split_q), .sel(dac_color_split_q[1:0]), .out(native_b_w));
-	vfb_dac_ladder sr (.level(expanded_main_w),   .sel(dac_color_split_q[5:4]), .out(sel_r_w));
-	vfb_dac_ladder sg (.level(expanded_main_w),   .sel(dac_color_split_q[3:2]), .out(sel_g_w));
-	vfb_dac_ladder sb (.level(expanded_main_w),   .sel(dac_color_split_q[1:0]), .out(sel_b_w));
+	vfb_dac_ladder lr (.level(dac_total_ladder_q), .sel(dac_color_ladder_q[5:4]), .out(native_r_w));
+	vfb_dac_ladder lg (.level(dac_total_ladder_q), .sel(dac_color_ladder_q[3:2]), .out(native_g_w));
+	vfb_dac_ladder lb (.level(dac_total_ladder_q), .sel(dac_color_ladder_q[1:0]), .out(native_b_w));
+	vfb_dac_ladder sr (.level(expanded_main_q),    .sel(dac_color_ladder_q[5:4]), .out(sel_r_w));
+	vfb_dac_ladder sg (.level(expanded_main_q),    .sel(dac_color_ladder_q[3:2]), .out(sel_g_w));
+	vfb_dac_ladder sb (.level(expanded_main_q),    .sel(dac_color_ladder_q[1:0]), .out(sel_b_w));
 
 	always_comb begin
 		native_r = native_r_w;
@@ -714,7 +735,7 @@ module vfb_readout #(
 		selected_g = sel_g_w;
 		selected_b = sel_b_w;
 
-		if (!expand_highlights_split_q || dac_overrange_split_q) begin
+		if (!expand_highlights_ladder_q || dac_overrange_ladder_q) begin
 			selected_r = native_r;
 			selected_g = native_g;
 			selected_b = native_b;
@@ -723,12 +744,12 @@ module vfb_readout #(
 	end
 
 	// Register channel levels before crossing-energy conversion.
-	logic [9:0] native_r_q;
-	logic [9:0] native_g_q;
-	logic [9:0] native_b_q;
-	logic [9:0] selected_r_q;
-	logic [9:0] selected_g_q;
-	logic [9:0] selected_b_q;
+	(* preserve, dont_retime *) logic [9:0] native_r_q;
+	(* preserve, dont_retime *) logic [9:0] native_g_q;
+	(* preserve, dont_retime *) logic [9:0] native_b_q;
+	(* preserve, dont_retime *) logic [9:0] selected_r_q;
+	(* preserve, dont_retime *) logic [9:0] selected_g_q;
+	(* preserve, dont_retime *) logic [9:0] selected_b_q;
 	logic [2:0] pixel_rgb_q;
 	logic       stored_overrange_q;
 	logic       pixel_active_q;
@@ -742,8 +763,8 @@ module vfb_readout #(
 			selected_g_q <= selected_g;
 			selected_b_q <= selected_b;
 			pixel_rgb_q <= pixel_rgb_comb;
-			stored_overrange_q <= dac_overrange_split_q;
-			pixel_active_q <= dac_active_split_q;
+			stored_overrange_q <= dac_overrange_ladder_q;
+			pixel_active_q <= dac_active_ladder_q;
 		end
 	end
 

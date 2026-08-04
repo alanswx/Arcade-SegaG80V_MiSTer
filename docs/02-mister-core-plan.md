@@ -26,8 +26,8 @@ it is deliberately pushed to the back of the schedule. The vector generator is
 transcribed from `refs/mame/segag80v_v.cpp` — which is already a phase-by-phase
 gate-level description — and cross-checked against
 `refs/schematics/XY_*.png`. The renderer is taken from
-`Arcade-Asteroids_MiSTer/rtl/videodr0me_fb/` and, if at all possible, left
-untouched.
+`Arcade-MajorHavoc_MiSTer/rtl/videodr0me_fb/` and adapted only where
+the Sega 6-bit colour path and timing require it.
 
 **Target:** DE10-Nano, 32 MB SDRAM module (the renderer's halo delay needs SDRAM in
 addition to DDR3). Quartus project cloned from the Star Wars core, since that is the
@@ -58,8 +58,7 @@ Arcade-SegaG80V_MiSTer/
 │   ├── i8035.v              # from Arcade-SegaVICZ80_MiSTer
 │   ├── tv80/                # from Arcade-SegaVICZ80_MiSTer
 │   ├── jt49/                # from Arcade-SegaVICZ80_MiSTer  (Zektor AY-3-8912)
-│   ├── videodr0me_fb/       # from Arcade-Asteroids_MiSTer, ideally unmodified
-│   ├── present_gate.sv      # from Arcade-Tempest_MiSTer
+│   ├── videodr0me_fb/       # from Arcade-MajorHavoc_MiSTer
 │   └── pll/
 ├── sim/                     # Verilator/ModelSim benches (see §7)
 ├── mra/                     # one MRA per romset
@@ -158,12 +157,10 @@ Coordinate map from the 1024×1024 vector field (visible window 1025×833) into 
 render target; per-game orientation — Tac/Scan is `FLIP_X ^ ROT270`, the others
 `FLIP_Y`.
 
-Port `present_gate.sv` from the Tempest core, gating on `DRAW` falling instead of
-Tempest's `vggo`, with the persistence depth on an OSD knob. At 40 Hz this is what
-stops the display flickering and stops long lists being cut mid-draw.
-
-Set the phosphor-decay dividers for 40.0 Hz (the defaults are for ~40.5 Hz — close,
-but worth retuning).
+Use the Major Havoc `vfb_buffer_controller` and `vfb_phosphor_compositor` directly.
+Its sparse inter-frame decay preserves completed frames and decays them at display
+boundaries; do not insert the Tempest list-accumulating `present_gate.sv` in front
+of it. Sega already emits one complete list per 40 Hz `FRAME_DONE`.
 
 **Exit:** all five games look right on hardware at 720p and 1080p, no flicker, no
 dropped beams.
@@ -269,7 +266,7 @@ better landed upstream than carried as a fork.
 
 1. Run the Phase 0 colour census in MAME.
 2. `git init` the core repo from a copy of `Arcade-StarWars_MiSTer`, vendor
-   `videodr0me_fb` from `Arcade-Asteroids_MiSTer` at a pinned commit.
+   `videodr0me_fb` from `Arcade-MajorHavoc_MiSTer` at a pinned commit.
 3. Trace U51's clock on `XY_Timing_800-0161_sheet7of7.png` and write the finding
    into `Research/xy_schematic_reference.txt`.
 4. Build the Verilator bench in §7 before writing `xy_timing.sv`.

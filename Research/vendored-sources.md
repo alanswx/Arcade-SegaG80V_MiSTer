@@ -7,7 +7,6 @@ listed under "Local modifications" below, so upstream updates can be rebased.
 |---|---|---|
 | `rtl/videodr0me_fb/` | [Videodr0me/Arcade-MajorHavoc_MiSTer](https://github.com/Videodr0me/Arcade-MajorHavoc_MiSTer) `rtl/videodr0me_fb/` | see below |
 | `sys/` | [Videodr0me/Arcade-StarWars_MiSTer](https://github.com/Videodr0me/Arcade-StarWars_MiSTer) `sys/` | `5270c74394c3828500543845f76011f88226dbff` |
-| `rtl/present_gate.sv` | [derpyder/Arcade-Tempest_MiSTer](https://github.com/derpyder/Arcade-Tempest_MiSTer) `rtl/present_gate.sv` | `92711125331383ffec7d4c3b053ed4b5dd232411` |
 | `rtl/tv80/` | [MiSTer-devel/Arcade-SegaVICZ80_MiSTer](https://github.com/MiSTer-devel/Arcade-SegaVICZ80_MiSTer) `rtl/tv80/` | `16386ffec0bf548520d174538190c09ffa426368` |
 | `rtl/i8035/i8035.v` | same | same |
 | `rtl/jt49/` | same | same |

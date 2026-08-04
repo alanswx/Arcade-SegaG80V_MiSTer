@@ -50,7 +50,7 @@ The developer is **Videodr0me**. Their vector work on MiSTer:
 
 | Core | Notes |
 |---|---|
-| [`Arcade-Asteroids_MiSTer`](https://github.com/Videodr0me/Arcade-Asteroids_MiSTer) | Asteroids, Asteroids Deluxe, Lunar Lander. Carries the **newest** `videodr0me_fb`. |
+| [`Arcade-Asteroids_MiSTer`](https://github.com/Videodr0me/Arcade-Asteroids_MiSTer) | Asteroids, Asteroids Deluxe, Lunar Lander. |
 | [`Arcade-StarWars_MiSTer`](https://github.com/Videodr0me/Arcade-StarWars_MiSTer) | Star Wars, cycle-exact AVG. The best-documented integration. |
 | [`Arcade-BlackWidow_MiSTer`](https://github.com/Videodr0me/Arcade-BlackWidow_MiSTer) | Black Widow / Gravitar. |
 | [`Arcade-MajorHavoc_MiSTer`](https://github.com/Videodr0me/Arcade-MajorHavoc_MiSTer) | Dual-processor Major Havoc. |
@@ -77,19 +77,17 @@ line-drawing step in between.
 
 [`derpyder/Arcade-Tempest_MiSTer`](https://github.com/derpyder/Arcade-Tempest_MiSTer)
 built a Tempest core by hosting a new game module inside Videodr0me's Star Wars
-project. Its README is effectively the recipe:
+project. Its README was useful as an early grafting reference:
 
 - **Reused unchanged:** the vector framebuffer, the MISTER_FB scan-out, the audio
   chain, the OSD/DIP infrastructure, clock/CDC plumbing, `sys/`.
 - **Written new:** the CPU + memory map (transcribed from the MAME driver), a
-  game-specific vector generator, a coordinate map from the game's tube space into
-  the framebuffer, and a **phosphor-persistence present-gate** (`present_gate.sv`)
-  that accumulates N complete display lists into one draw buffer so the framebuffer
-  behaves like a phosphor rather than a strobe.
+  game-specific vector generator, and a coordinate map into the framebuffer.
 
-That last item matters for Sega too: at 40 Hz redraw, presenting one list per
-displayed frame will flicker and will cut long lists mid-draw. Sega's `DRAW`
-flag gives a clean per-list boundary to gate on, exactly like Tempest's `vggo`.
+The Tempest list-accumulating present gate is not appropriate for Sega. Sega emits
+one complete list per 40 Hz `FRAME_DONE`; the Major Havoc `vfb_buffer_controller`
+and sparse `vfb_phosphor_compositor` provide the required inter-frame persistence
+after completed frames.
 
 ## 4. Documentation situation — good
 
@@ -117,8 +115,7 @@ I did not expect the schematics to be this complete, but they are.
 | Z80 | `tv80` | `Arcade-SegaVICZ80_MiSTer` (or T80 from any MiSTer core) |
 | **8035** (speech board *and* Universal Sound Board) | `rtl/i8035.v` | `Arcade-SegaVICZ80_MiSTer` |
 | AY-3-8912 (Zektor) | `rtl/jt49/` | `Arcade-SegaVICZ80_MiSTer` |
-| Vector renderer + CRT pipeline | `rtl/videodr0me_fb/` | `Arcade-Asteroids_MiSTer` |
-| Present-gate / phosphor persistence | `rtl/present_gate.sv` | `Arcade-Tempest_MiSTer` |
+| Vector renderer + CRT pipeline, including inter-frame decay | `rtl/videodr0me_fb/` | `Arcade-MajorHavoc_MiSTer` |
 | MRA-driven ROM loading, hiscore save | `rtl/games.v`, `rtl/hiscore.v` | `Arcade-SegaVICZ80_MiSTer` |
 | 8253 PIT (USB sound) | none found — write it | — |
 | SP0250 LPC synth (speech) | none found in a MiSTer core — write it or start from MAME's `sp0250.cpp` | — |

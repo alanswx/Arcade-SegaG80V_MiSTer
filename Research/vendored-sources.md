@@ -92,6 +92,16 @@ composed    { rgb[5:0], fresh,         energy[8:0] } (was { rgb[3:0], fresh, 2'd
 | `vfb_phosphor_compositor.sv` | colour registers 4 -> 6 bits; `stored_pixel` repacked |
 | `vfb_dac_ladder.sv` | **new** — the 2-bit-per-gun ladder, 0 / 1/3 / 2/3 / 1 |
 
+Two follow-on timing changes in `vfb_readout.sv`, found on hardware:
+
+* The shoulder add feeding the ladder is registered ahead of it, and the level
+  registers carry `preserve, dont_retime`. Three guns through a ladder behind a
+  10-bit add was the critical path at 125 MHz — Havoc only had it on red.
+* `READ_ADVANCE` 9 -> 10. That pipeline stage makes the datapath 11 registers
+  deep against Havoc's 10, and the sync/blank shift register is tapped to match
+  the datapath depth. Left at 9 the picture sits one pixel right of its own
+  blanking, losing the rightmost column.
+
 Verified by `make color6`: all 1024 DAC levels x 4 gun levels against an exact
 model of the ladder, worst error 1 LSB, with levels 0 and 3 exact and
 monotonicity checked in both arguments.

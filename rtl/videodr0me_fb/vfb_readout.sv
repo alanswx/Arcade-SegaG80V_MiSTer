@@ -369,7 +369,15 @@ module vfb_readout #(
 
 	// Convert tile words back to pixels.
 	// RGB and sync/blank follow the same nine-ce_pix path to the output register.
-	localparam READ_ADVANCE = 9;
+	// LOCAL MOD: 10, not Havoc's 9.
+	//
+	// The sync/blank shift register is tapped at [READ_ADVANCE-2], so it
+	// delays sync by READ_ADVANCE-1 pixel enables to match the depth of the
+	// pixel datapath. The Sega colour path adds one stage over Havoc's (the
+	// shoulder add is registered ahead of the per-gun ladder, to keep the
+	// 125 MHz path short), making the datapath 11 stages deep instead of 10.
+	// Without this the picture sits one pixel right of its own blanking.
+	localparam READ_ADVANCE = 10;
 
 	logic [READ_ADVANCE-1:0] hs_pipe, vs_pipe, hb_pipe, vb_pipe;
 

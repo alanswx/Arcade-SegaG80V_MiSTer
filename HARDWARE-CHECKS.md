@@ -87,7 +87,50 @@ The only game with swapped axes (`SWAP_XY | FLIP_X | FLIP_Y`), rendered into a
 portrait 832×1024 target. **Check:** it is rotated the right way and fills the
 screen sensibly at 720p and 1080p.
 
-### 7. Audio — nothing has ever been heard
+### 7. Audio — KNOWN BROKEN, do not spend a build on it
+
+**2026-08-04: neither sound board produces audio in the assembled machine.**
+Every component passes its bench (17/17, including bit-exact 8253, MM5837 and
+SP0250), but `make audio` — which runs a real game through `segag80v` and
+records the result — shows silence. That is a component-versus-system gap, and
+it is worth stating plainly because the previous version of this file claimed
+the audio was verified.
+
+What `make audio` establishes, on Space Fury:
+
+| Observation | Meaning |
+|---|---|
+| 799 frames drawn in 20 s, 12.8 M beam-on samples | the machine and video are fine |
+| Z80 writes `$38` <- 3F, BF, 0F, 8F, 0E, 8E and `$3B` <- 28 | the game *does* ask for three words, and control bit 3 gates speech on |
+| speech 8035 executes from 0x000 and its opcodes match the ROM | the 8035 core runs the right program |
+| 3540 SP0250 writes / 236 DRQ edges = exactly 15:1 | the frame-feed loop works |
+| every byte written to the SP0250 is 00 | it is feeding silence frames |
+| T0 rises at t=53.2 ms and stays high | the request handshake reaches the board |
+| P1.7 never goes low; **0 MOVX reads of the speech data ROM** | the 8035 never acknowledges and never fetches speech data |
+
+So the speech 8035 sees the pending word and never acts on it. The Universal
+Sound Board is the same story from the other end: Tac/Scan issues only 2 `$3F`
+commands in 20 s and the recorded output has 42 non-zero samples in 960000 —
+isolated clicks, not sound.
+
+Things already ruled out, so nobody repeats them: the T0 rising-edge rule, the
+P1 readback (`latch & 0x7F`, bit 7 = 0), the INT polarity and its power-on
+state, the INT pulse width (6.78 us against a 4.81 us instruction cycle), the
+DIP defaults (SW1 must be 0x8D — bit 1 is Demo Sounds and MAME defaults it
+*on*), the 8035 clock (MAME feeds the crystal and divides by 15 internally,
+which is what `t48` expects), and the speech ROM contents in the image.
+
+Four real bugs were found and fixed on the way, none of which was the cause:
+P2 is now latched at ALE alongside the low address byte (reading it live during
+PSEN returns the written P2 register, not PC[11:8]); the write data bus is
+sampled during WR rather than at its rising edge; T0 clears on the falling edge
+of P1.7 rather than on its level; and the speech latch resets to 0x80 so INT is
+not asserted from power-on.
+
+The remaining suspect is the `t48`/`i8035` integration — both boards fail the
+same way, and both are the only places this core uses that CPU.
+
+### Previously written, still true as far as it goes
 
 Implemented and verified in simulation, **never played through a speaker**:
 

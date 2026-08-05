@@ -275,7 +275,12 @@ module emu
 		.drawing(drawing), .frame_done(vec_frame_done), .vec_tick(vec_tick),
 		.snd_wr(), .snd_sel(), .ay_wr(), .ay_port(),
 		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(), .snd_data(),
-		.audio_ay(audio_ay), .audio_speech(audio_speech), .audio_usb(audio_usb)
+		.audio_ay(audio_ay), .audio_speech(audio_speech), .audio_usb(audio_usb),
+		.dbg_usb_tick(), .dbg_usb_noise(), .dbg_usb_tmr(),
+		.dbg_usb_cfg(), .dbg_usb_env(),
+		.dbg_sp_prog_addr(), .dbg_sp_wr(), .dbg_sp_data(), .dbg_sp_drq(),
+		.dbg_sp_t0(), .dbg_sp_p1(), .dbg_sp_rd_n(), .dbg_sp_data_addr(),
+		.dbg_sp_int_n(), .dbg_sp_dac()
 	);
 
 	//============================================================

@@ -138,7 +138,8 @@ module boot_wrap #(
 		.data_wr(~usb_data_wr && usb_data_d), .din(usb_din), .status(usb_status),
 		.pgm_addr(usb_addr), .pgm_din(usb_din), .pgm_wr(usb_wr),
 		.pgm_dout(usb_dout),
-		.audio(usb_audio_o)
+		.audio(usb_audio_o),
+		.dbg_tick(), .dbg_noise(), .dbg_tmr(), .dbg_cfg(), .dbg_env()
 	);
 
 	sega_xy_top #(.PHASE_CLKS(PHASE_CLKS)) xy (

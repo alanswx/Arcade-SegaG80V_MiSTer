@@ -45,7 +45,16 @@ module sega_usb #(
 	output logic [7:0] pgm_dout,
 
 	// ---- audio ----
-	output wire signed [15:0] audio
+	output wire signed [15:0] audio,
+
+	// Simulation taps: everything the analog chain consumes, so a bench can
+	// drive MAME's double-precision model from the same stimulus and compare.
+	// Unused on hardware; synthesis prunes them.
+	output wire        dbg_tick,
+	output wire        dbg_noise,
+	output wire  [8:0] dbg_tmr,      // {group2, group1, group0}
+	output wire  [2:0] dbg_cfg,
+	output wire [71:0] dbg_env       // g0c0, g0c1, g0c2, g1c0, ... g2c2
 );
 
 	// ------------------------------------------------------------------
@@ -156,15 +165,23 @@ module sega_usb #(
 	logic [7:0] cpu_di;
 	logic       ale_d;
 
-	wire [11:0] cpu_pc = {p2_out[3:0], addr_lo};
+	// P2 must be sampled at the ALE edge alongside the low address byte: the
+	// core's P2 output is registered, so reading it live during PSEN returns
+	// the written P2 register rather than PC[11:8]. See sega_speech.sv.
+	logic [7:0] p2_lat;
+	wire [11:0] cpu_pc = {p2_lat[3:0], addr_lo};
 
 	always_ff @(posedge clk) begin
 		if (reset) begin
 			addr_lo <= 8'd0;
+			p2_lat  <= 8'd0;
 			ale_d   <= 1'b0;
 		end else if (ce_cpu) begin
 			ale_d <= ale;
-			if (!ale && ale_d) addr_lo <= cpu_do;
+			if (!ale && ale_d) begin
+				addr_lo <= cpu_do;
+				p2_lat  <= p2_out;
+			end
 		end
 	end
 
@@ -200,11 +217,20 @@ module sega_usb #(
 		.O_P2    (p2_out)
 	);
 
-	// MOVX write, strobed once at the end of the cycle
+	// MOVX write, strobed once at the end of the cycle. The 8035 drives the
+	// data bus only while WR is low and releases it at the rising edge, so the
+	// bus is sampled during the pulse and held for the strobe — reading cpu_do
+	// at the strobe itself gets whatever the core drives when idle.
 	logic wr_n_d;
+	logic [7:0] wr_data;
 	always_ff @(posedge clk) begin
-		if (reset)   wr_n_d <= 1'b1;
-		else if (ce_cpu) wr_n_d <= wr_n;
+		if (reset) begin
+			wr_n_d  <= 1'b1;
+			wr_data <= 8'd0;
+		end else if (ce_cpu) begin
+			wr_n_d <= wr_n;
+			if (!wr_n) wr_data <= cpu_do;
+		end
 	end
 	wire movx_wr = ce_cpu && wr_n && !wr_n_d;
 
@@ -261,11 +287,11 @@ module sega_usb #(
 
 			// work RAM write, plus the control decode on the low 24 bytes
 			if (movx_wr) begin
-				work_ram[work_addr] <= cpu_do;
+				work_ram[work_addr] <= wr_data;
 				if (in_regs && !is_ctc && (addr_lo[1:0] != 2'd3))
-					env[grp][addr_lo[1:0]] <= cpu_do;
+					env[grp][addr_lo[1:0]] <= wr_data;
 				if (in_regs && !is_ctc && (addr_lo[1:0] == 2'd3))
-					cfg[grp] <= cpu_do[0];
+					cfg[grp] <= wr_data[0];
 			end
 		end
 	end
@@ -286,14 +312,22 @@ module sega_usb #(
 	wire [2:0] tmr_out, tmr_out1, tmr_out2;
 
 	usb_timer t0 (.clk(clk), .reset(reset), .wr(tmr_wr0), .addr(addr_lo[1:0]),
-	              .din(cpu_do), .ch_clk(ch_clk), .ch_gate(ch_gate), .out(tmr_out));
+	              .din(wr_data), .ch_clk(ch_clk), .ch_gate(ch_gate), .out(tmr_out));
 	usb_timer t1 (.clk(clk), .reset(reset), .wr(tmr_wr1), .addr(addr_lo[1:0]),
-	              .din(cpu_do), .ch_clk(ch_clk), .ch_gate(ch_gate), .out(tmr_out1));
+	              .din(wr_data), .ch_clk(ch_clk), .ch_gate(ch_gate), .out(tmr_out1));
 	usb_timer t2 (.clk(clk), .reset(reset), .wr(tmr_wr2), .addr(addr_lo[1:0]),
-	              .din(cpu_do), .ch_clk(ch_clk), .ch_gate(ch_gate), .out(tmr_out2));
+	              .din(wr_data), .ch_clk(ch_clk), .ch_gate(ch_gate), .out(tmr_out2));
 
 	wire noise;
 	usb_noise ns (.clk(clk), .reset(reset), .tick(ce_mm), .state(noise));
+
+	assign dbg_tick  = ce_2m;
+	assign dbg_noise = noise;
+	assign dbg_tmr   = {tmr_out2, tmr_out1, tmr_out};
+	assign dbg_cfg   = cfg;
+	assign dbg_env   = {env[2][2], env[2][1], env[2][0],
+	                    env[1][2], env[1][1], env[1][0],
+	                    env[0][2], env[0][1], env[0][0]};
 
 	// ------------------------------------------------------------------
 	// Analog chain

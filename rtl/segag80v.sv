@@ -80,7 +80,24 @@ module segag80v #(
 	// ---- audio ----
 	output wire [10:0] audio_ay,     // Zektor AY-3-8912
 	output wire signed [15:0] audio_speech,
-	output wire signed [15:0] audio_usb
+	output wire signed [15:0] audio_usb,
+
+	// simulation taps into the Universal Sound Board, see sega_usb.sv
+	output wire        dbg_usb_tick,
+	output wire        dbg_usb_noise,
+	output wire  [8:0] dbg_usb_tmr,
+	output wire  [2:0] dbg_usb_cfg,
+	output wire [71:0] dbg_usb_env,
+	output wire [10:0] dbg_sp_prog_addr,
+	output wire        dbg_sp_wr,
+	output wire  [7:0] dbg_sp_data,
+	output wire        dbg_sp_drq,
+	output wire        dbg_sp_t0,
+	output wire  [7:0] dbg_sp_p1,
+	output wire        dbg_sp_rd_n,
+	output wire [13:0] dbg_sp_data_addr,
+	output wire        dbg_sp_int_n,
+	output wire signed [7:0] dbg_sp_dac
 );
 
 	// ------------------------------------------------------------------
@@ -230,7 +247,17 @@ module segag80v #(
 		// Star Trek routes the USB through the speech board's CD4053;
 		// Tac/Scan has no speech board and goes straight to the amp.
 		.usb_audio (cfg_speech ? usb_audio : 16'sd0),
-		.audio     (audio_speech)
+		.audio     (audio_speech),
+		.dbg_prog_addr(dbg_sp_prog_addr),
+		.dbg_sp_wr    (dbg_sp_wr),
+		.dbg_sp_data  (dbg_sp_data),
+		.dbg_drq      (dbg_sp_drq),
+		.dbg_t0       (dbg_sp_t0),
+		.dbg_p1       (dbg_sp_p1),
+		.dbg_rd_n     (dbg_sp_rd_n),
+		.dbg_data_addr(dbg_sp_data_addr),
+		.dbg_int_n    (dbg_sp_int_n),
+		.dbg_dac      (dbg_sp_dac)
 	);
 
 	// ------------------------------------------------------------------
@@ -248,7 +275,12 @@ module segag80v #(
 		.pgm_din  (usb_din),
 		.pgm_wr   (usb_wr),
 		.pgm_dout (usb_dout),
-		.audio    (usb_audio)
+		.audio    (usb_audio),
+		.dbg_tick (dbg_usb_tick),
+		.dbg_noise(dbg_usb_noise),
+		.dbg_tmr  (dbg_usb_tmr),
+		.dbg_cfg  (dbg_usb_cfg),
+		.dbg_env  (dbg_usb_env)
 	);
 
 	assign audio_usb = cfg_speech ? 16'sd0 : usb_audio;

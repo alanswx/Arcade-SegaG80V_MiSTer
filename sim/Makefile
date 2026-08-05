@@ -9,7 +9,7 @@ RTL      := ../rtl
 VFLAGS   := -Wall -Wno-fatal --cc --exe --build -j 0 -O2 \
             -CFLAGS "-O2 -std=c++17"
 
-.PHONY: all security ports color6 geometry sp0250 usbtimer usbnoise usbfilter xy xy1 cpu boot clean
+.PHONY: all security ports color6 geometry sp0250 usbtimer usbnoise usbfilter xy xy1 cpu boot audio clean
 
 all: security ports color6 geometry sp0250 usbtimer usbnoise usbfilter xy xy1 cpu boot
 
@@ -66,6 +66,46 @@ usbfilter: obj_usbfilter/Vusb_filter
 	@./obj_usbfilter/Vusb_filter
 
 # ---------------------------------------------------------------------------
+# Audio capture: runs a real game through the whole machine and writes WAVs.
+# Not part of `make all` — it is a listening aid, not a pass/fail check.
+
+obj_audio/Vaudio_wrap: $(RTL)/segag80v.sv $(RTL)/segag80v_cpu.sv \
+                     $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
+                     $(RTL)/xy/sega_xy.sv $(RTL)/xy/sega_xy_top.sv \
+                     $(RTL)/sound/sega_speech.sv $(RTL)/sound/sp0250.sv \
+                     $(RTL)/sound/sega_ay.sv $(RTL)/sound/sega_usb.sv \
+                     $(RTL)/sound/usb_timer.sv $(RTL)/sound/usb_noise.sv \
+                     $(RTL)/sound/usb_filter.sv $(RTL)/sega_inputs.sv \
+                     tb/audio_wrap.sv tb/tb_audio.cpp golden/usb_filter_golden.h
+	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
+		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
+		-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-CASEINCOMPLETE \
+		--no-timing --Mdir obj_audio --top-module audio_wrap \
+		-CFLAGS "-I../golden" -I$(RTL) -I$(RTL)/tv80 \
+		tb/audio_wrap.sv \
+		$(RTL)/segag80v.sv $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
+		$(RTL)/sega_security.sv $(RTL)/sega_game_pkg.sv $(RTL)/sega_inputs.sv \
+		$(RTL)/xy/sega_xy.sv $(RTL)/xy/sega_xy_top.sv \
+		$(RTL)/sound/sega_speech.sv $(RTL)/sound/sp0250.sv \
+		$(RTL)/sound/sega_ay.sv $(RTL)/sound/sega_usb.sv \
+		$(RTL)/sound/usb_timer.sv $(RTL)/sound/usb_noise.sv \
+		$(RTL)/sound/usb_filter.sv \
+		$(RTL)/i8035/i8035.v $(RTL)/spram.v $(RTL)/tv48/*.v \
+		$(RTL)/jt49/*.v \
+		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \
+		$(RTL)/tv80/tv80_mcode.v $(RTL)/tv80/tv80_reg.v \
+		tb/tb_audio.cpp
+
+AUDIO_SECS ?= 25
+
+audio: obj_audio/Vaudio_wrap
+	@mkdir -p audio
+	@./obj_audio/Vaudio_wrap roms/zektor.rom   3 $(AUDIO_SECS) audio/zektor
+	@./obj_audio/Vaudio_wrap roms/spacfury.rom 2 $(AUDIO_SECS) audio/spacfury
+	@./obj_audio/Vaudio_wrap roms/tacscan.rom  4 $(AUDIO_SECS) audio/tacscan
+	@./obj_audio/Vaudio_wrap roms/startrek.rom 5 $(AUDIO_SECS) audio/startrek
+
+# ---------------------------------------------------------------------------
 
 obj_geometry/Vsega_geometry: $(RTL)/sega_geometry.sv tb/tb_geometry.cpp
 	verilator $(VFLAGS) --Mdir obj_geometry \
@@ -102,7 +142,7 @@ obj_cpu/Vsegag80v_cpu: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
 		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
 		--no-timing -CFLAGS "-I../golden" \
-		--Mdir obj_cpu --top-module segag80v_cpu \
+		--Mdir obj_cpu --top-module audio_wrap_cpu \
 		-I$(RTL)/tv80 \
 		$(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
 		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \
@@ -116,7 +156,7 @@ obj_cpu0/Vsegag80v_cpu: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
 		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
 		--no-timing -CFLAGS "-I../golden" \
-		--Mdir obj_cpu0 --top-module segag80v_cpu -GWAIT_STATES=0 \
+		--Mdir obj_cpu0 --top-module audio_wrap_cpu -GWAIT_STATES=0 \
 		-I$(RTL)/tv80 \
 		$(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
 		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \
@@ -128,7 +168,7 @@ obj_cpu1/Vsegag80v_cpu: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
 		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
 		--no-timing -CFLAGS "-I../golden" \
-		--Mdir obj_cpu1 --top-module segag80v_cpu -GWAIT_STATES=1 \
+		--Mdir obj_cpu1 --top-module audio_wrap_cpu -GWAIT_STATES=1 \
 		-I$(RTL)/tv80 \
 		$(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
 		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \
@@ -206,4 +246,4 @@ xy1: obj_xy1/Vsega_xy
 	@./obj_xy1/Vsega_xy 1
 
 clean:
-	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_sp0250 obj_usbtimer obj_usbnoise obj_usbfilter obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1
+	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_sp0250 obj_usbtimer obj_usbnoise obj_usbfilter obj_audio obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1

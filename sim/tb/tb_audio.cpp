@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
 	// sits in the middle. Holding it 250 ms, as this bench first did, is
 	// rejected outright.
 	const double COIN_AT = 8.0, COIN_FOR = 0.10;
-	const double START_AT = 10.0, START_FOR = 0.25;
+	const double START_AT = 8.4, START_FOR = 0.25;
 
 	long    sub = 0;
 	double  usb_mame_peak = 0;
@@ -194,9 +194,12 @@ int main(int argc, char **argv) {
 		uint32_t j = 0;
 		if ((t >= COIN_AT && t < COIN_AT + COIN_FOR) ||
 		    (t >= COIN_AT + 0.5 && t < COIN_AT + 0.5 + COIN_FOR)) j |= 1u << 10;
+		// Start is pulsed at 5 Hz, 50% duty, the same pattern the boot bench
+		// uses. A single long press is not enough: the games sample START at
+		// specific points and want to see it released between presses.
 		if (t >= START_AT) {
-			double ph = t - START_AT;
-			if (ph - (long)ph < 0.30) j |= 1u << 8;
+			double ph = (t - START_AT) * 5.0;
+			if ((long)ph & 1) j |= 1u << 8;
 		}
 		dut->joy1 = j;
 

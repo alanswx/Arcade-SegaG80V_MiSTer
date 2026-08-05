@@ -111,50 +111,65 @@ went 166 -> 299 and all three of Space Fury's power-on words are now consumed.
 
 This affects **both** sound boards — they are the only users of `i8035`.
 
-### 7b. CORRECTION: coins work; the earlier entry here was wrong
+### 7b. Sound status by game (2026-08-05)
 
-A previous version of this file said coins never credit and that no game could
-be started. **That was wrong, and the fault was in the test bench, not the
-core.** The bench held the coin low for 250 ms. Space Fury's coin routine
-counts down from 231 retries at ~0.67 ms each while waiting for the coin to be
-*released*, and rejects the coin if the loop runs out — so anything held longer
-than ~155 ms is discarded as a stuck coin. It also rejects anything shorter
-than ~21 ms as a bounce. 100 ms sits in the middle and works.
+All four implemented boards now produce audio from a running game. Measured by
+`make audio`, which coins up, starts, and records 30 s at 48 kHz.
 
-With a 100 ms coin the whole chain is confirmed: the flip-flop sets, the Z80
-IRQ fires, the ISR at 0x0069 reads `$F8`, the debounce at 0x0095 exits on
-release, `CALL 010A` pulses the coin meter through `OUT ($F9),A`, and the BCD
-credit counter at `$C80B` goes to 01. Eliminator, Zektor, Tac/Scan and Star
-Trek all respond to a coin.
+| Game | Boards fitted | State | Level |
+|---|---|---|---|
+| Eliminator 2P/4P | discrete only | **silent — board not implemented** | — |
+| Space Fury | speech + discrete | speech **works**; discrete not implemented | speech -6.2 dBFS |
+| Zektor | AY-3-8912 + speech + discrete | AY **works**, speech **works**; discrete not implemented | AY -30.1, speech -6.0 dBFS |
+| Tac/Scan | Universal Sound Board | **works** | -9.4 dBFS |
+| Star Trek | speech + USB (through the speech CD4053) | **works**, both | speech -14.9 dBFS |
 
-The security scrambler is also exonerated: main RAM writes were traced and
-`INC (HL)` at `$C80A` increments cleanly with nothing displaced, which is
-correct — MAME only scrambles writes issued by opcode `$32` (`LD (nn),A`).
-
-### 7c. Audio now works for two of the boards
-
-With the t48 T0 fix and a correctly timed coin, `make audio` produces real
-sound from a running game:
-
-| Board | Game | Result |
-|---|---|---|
-| Universal Sound Board | Tac/Scan | 239 sound commands, peak -9.4 dBFS, 72.5% of samples non-zero |
-| Speech board | Star Trek | 8035 now covers 1293 of 2048 program addresses, SP0250 DAC active over 10.8 M samples, peak -14.9 dBFS |
-
-And the fixed-point analog chain tracks MAME's double-precision model on real
-game audio, not just synthetic stimulus:
+The Universal Sound Board's fixed-point analog chain tracks MAME's
+double-precision model on real gameplay, not just synthetic stimulus:
 
 ```
-RTL vs MAME analog chain, on real Tac/Scan game audio:
-  correlation 0.999586   rms ratio 0.9987
+USB analog chain, RTL vs MAME, on real Tac/Scan gameplay:
+  correlation 0.999587   rms ratio 0.9990
 ```
 
-**Still open:** Space Fury and Zektor remain silent. Both take the coin but
-neither starts a game or asks for speech beyond the six power-on bytes, and
-both of their main sound boards are the *discrete* boards, which are not
-implemented. Space Fury's speech board is the odd one out — it should speak in
-attract, and it does not, while Star Trek's identical board does. That is the
-next thread.
+Two things that took a while to learn and are worth keeping:
+
+- **Coin pulse width matters.** Space Fury's routine counts down from 231
+  retries at ~0.67 ms while waiting for release, and rejects the coin if the
+  loop runs out (>~155 ms, "stuck coin") or too few retries elapsed (<~21 ms,
+  "bounce"). 100 ms works.
+- **Start must be pulsed, not held.** The games sample START at specific points
+  and want to see it released between presses. `make audio` pulses it at 5 Hz.
+
+### 7c. Known gap: the speech board has no output filter
+
+Comparing `spacfury_speech.wav` against a real cabinet recording shows the core
+carrying much more energy above 700 Hz:
+
+```
+  band(Hz)    arcade    core
+      163     0.133    0.041
+      434     0.137    0.108
+      903     0.013    0.070
+     1880     0.008    0.053
+     3066     0.002    0.046
+  spectral-shape correlation 0.24
+```
+
+The cause is identified: **nothing filters the SP0250 output.** The raw DAC is a
+10 kHz sample-and-hold and sounds correspondingly bright. MAME does not filter
+it either — `segaspeech.cpp` has `#define ENABLE_NETLIST_FILTERING (0)`, so its
+default path routes the SP0250 straight out, which is what this core matches.
+The real board has an op-amp filter (R17-R21, C9/C10/C50 in
+`refs/mame/nl_segaspeech.cpp`) that MAME only models in the disabled netlist
+path.
+
+So the speech *content* is right — the SP0250 is bit-exact against MAME and the
+8035 runs the real program — but the *tone* will be brighter than a cabinet
+until that filter is added. It is small: five resistors and three caps, the
+same shift-add treatment as `usb_filter.sv`. Some of the low-frequency
+difference above is also the cabinet speaker and the recording chain, so do not
+chase the numbers exactly.
 
 ### 7d. Audio — what is still unheard on hardware
 

@@ -9,9 +9,9 @@ RTL      := ../rtl
 VFLAGS   := -Wall -Wno-fatal --cc --exe --build -j 0 -O2 \
             -CFLAGS "-O2 -std=c++17"
 
-.PHONY: all security ports color6 geometry sp0250 xy xy1 cpu boot clean
+.PHONY: all security ports color6 geometry sp0250 usbtimer xy xy1 cpu boot clean
 
-all: security ports color6 geometry sp0250 xy xy1 cpu boot
+all: security ports color6 geometry sp0250 usbtimer xy xy1 cpu boot
 
 # ---------------------------------------------------------------------------
 
@@ -34,6 +34,18 @@ obj_sp0250/Vsp0250: $(RTL)/sound/sp0250.sv tb/tb_sp0250.cpp \
 
 sp0250: obj_sp0250/Vsp0250
 	@./obj_sp0250/Vsp0250
+
+# ---------------------------------------------------------------------------
+
+obj_usbtimer/Vusb_timer: $(RTL)/sound/usb_timer.sv tb/tb_usb_timer.cpp \
+                         golden/usb_timer_golden.h
+	verilator $(VFLAGS) --Mdir obj_usbtimer \
+		--top-module usb_timer \
+		-CFLAGS "-I../golden" \
+		$(RTL)/sound/usb_timer.sv tb/tb_usb_timer.cpp
+
+usbtimer: obj_usbtimer/Vusb_timer
+	@./obj_usbtimer/Vusb_timer
 
 # ---------------------------------------------------------------------------
 
@@ -171,4 +183,4 @@ xy1: obj_xy1/Vsega_xy
 	@./obj_xy1/Vsega_xy 1
 
 clean:
-	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_sp0250 obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1
+	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_sp0250 obj_usbtimer obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1

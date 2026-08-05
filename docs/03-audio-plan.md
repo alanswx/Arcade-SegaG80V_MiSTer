@@ -9,7 +9,7 @@ where the real thing is knowable.**
 |---|---|---|---|
 | 1 | AY-3-8912 | Zektor | **done** |
 | 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | **done**, unheard on hardware |
-| 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | after |
+| 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | **8253 done**, board next |
 | 4 | Discrete boards | Eliminator, Space Fury, Zektor | last, open-ended |
 
 ---
@@ -125,7 +125,7 @@ misleading — the real part is the SP0250 (`segaspeech.cpp` includes
 `sound/sp0250.h`). Only the Italian *Advisor* bootleg uses a TMS5100, and it is
 unimplemented in MAME too.
 
-## 3. Universal Sound Board — after
+## 3. Universal Sound Board — 8253 done, board next
 
 **Hardware:** 8035 @ 6 MHz, three 8253 PITs, DACs, an MM5837 noise source and
 analog filters. Drawing 800-0377, three sheets, in `refs/schematics/`.
@@ -142,9 +142,76 @@ lines) plus `nl_segausb.cpp` (545 lines of netlist for the analog side).
 Clocks from MAME: `USB_MASTER_CLOCK` 6 MHz, `USB_2MHZ_CLOCK` = /3,
 `USB_PCS_CLOCK` = /2 again, `USB_GOS_CLOCK` = /16/4, `MM5837_CLOCK` 100 kHz.
 
-**Verification:** the 8253 is exactly specifiable, so unit-test it against a C
-model of all six modes the way `sega_ports` was done. The analog chain is
-better judged by ear against MAME.
+### 8253 — done and verified
+
+`rtl/sound/usb_timer.sv`, checked against a C++ port of MAME's `timer8253` by
+`make usbtimer`:
+
+```
+usb_timer: 6000000 output comparisons, 1999239 channel clocks, 4953 writes, 0 failed
+  coverage: output transitions ch0=6577 ch1=5391 ch2=6405
+```
+
+Only clock modes 1 (one-shot) and 3 (square wave) are implemented, matching
+MAME — the board's program uses no others, and a real 8253's remaining modes
+would be dead logic.
+
+One thing to know: **a register write and a channel clock landing on the same
+cycle must be ordered write-then-clock.** MAME applies the write and then
+clocks within the same stream update; plain non-blocking assignments let the
+clock read pre-write state and the outputs diverge. The RTL sequences through
+local variables to get this right. This is the third time this exact hazard has
+come up in this core (the `$BD/$BE` multiplier, the SP0250 FIFO, and now here).
+
+### Remaining: the board itself
+
+`rtl/sound/sega_usb.sv`. The digital half is straightforward and mirrors the
+speech board; the analog chain is the part that needs care.
+
+**Digital**
+
+| Piece | Detail |
+|---|---|
+| 8035 | 6 MHz, `I_EA` high, same wiring pattern as `sega_speech.sv` |
+| Program RAM | 4K at `$0000-$0FFF`, **shared with the main Z80 at `$D000-$DFFF`** — already routed through `segag80v_cpu`, currently stubbed off in `segag80v.sv` |
+| Work RAM | 1K as four 256-byte banks, `P2[1:0]` selects; the 8035's whole I/O space maps to it |
+| Control decode | writes to work RAM offsets `$00-$17`: `$00-$03` 8253 U41, `$04-$07` ENV0, `$08-$0B` 8253 U42, `$0C-$0F` ENV1, `$10-$13` 8253 U43, `$14-$17` ENV2. `$x7` bit 0 is that group's `config` bit |
+| P1 in | `in_latch & 0x7F` |
+| P1 out | bit 7 -> bit 0 of the output latch |
+| P2 out | `[1:0]` work RAM bank, bit 6 ready/clears the input latch when low, bit 7 resets the U33 counter |
+| T1 | `t1_clock & t1_clock_mask`, the mask set by board jumpers |
+| Host | `$3F` read returns `(out_latch & 0x81) \| (in_latch & 0x7E)`; `$3F` write loads the input latch |
+
+Clock enables, all from the 6 MHz master: `2MHZ = /3`, `PCS = 2MHZ/2`,
+`GOS = 2MHZ/16/4`, and the MM5837 noise clock at 100 kHz.
+
+Timer clocking: channels 0 and 1 clock at PCS with the gate held high; channel
+2 clocks at 2 MHz with its gate toggling at GOS/2.
+
+**MM5837 noise** — exact, a 17-bit LFSR:
+`shift = (shift << 1) | (((shift >> 13) ^ (shift >> 16)) & 1)`, output is
+bit 16. Worth unit-testing alongside the timer.
+
+**Analog chain** — this is where the fidelity question is. MAME runs its
+stream at **2 MHz** and applies seventeen one-pole filters per sample:
+
+- 4 on the noise source (three RC-ish, one CR)
+- 4 per group x 3 groups: two channel CR filters, two switched gate RC filters
+  whose exponents are selected by that group's channel 2 output
+- 1 final CR
+
+Each is `capval += (input - capval) * exponent` (RC) or the CR variant. At
+12.096 MHz there are ~6 clocks per 2 MHz tick, so roughly three multipliers
+time-shared across the seventeen filters, in fixed point.
+
+**Fidelity note:** MAME's own comment calls the noise filter *"just an
+approximation to the pink noise filter being applied on the PCB, but it sounds
+pretty close"*, and the whole chain is `double`. So unlike the 8253, the SP0250
+and the vector generator, **there is no bit-exact target here** — a fixed-point
+implementation can only be judged by ear against MAME. Plan the word lengths
+deliberately (the RC coefficients run from 0.57 to 0.998, so the state needs
+enough fractional bits that the slowest pole does not stall) and expect to
+tune.
 
 ## 4. Discrete boards — last
 

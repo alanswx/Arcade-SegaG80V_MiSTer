@@ -4,7 +4,7 @@ For whoever takes this to the DE10-Nano. Everything in `sim/` is verified
 against MAME in simulation; this file lists only what **cannot** be checked
 without real hardware, plus what is known good so you don't re-test it.
 
-Run `cd sim && make all` first — 14/14 should pass before a build is worth
+Run `cd sim && make all` first — 15/15 should pass before a build is worth
 doing. If any of those fail, fix that before touching Quartus.
 
 ---

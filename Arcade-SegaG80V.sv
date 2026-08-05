@@ -248,6 +248,7 @@ module emu
 	);
 
 	wire [10:0] audio_ay;
+	wire signed [15:0] audio_speech;
 	wire       vec_tick;
 	wire [9:0] vec_x, vec_y;
 	wire [5:0] vec_colour;
@@ -259,7 +260,7 @@ module emu
 		.pause(pause_cpu),
 		.cfg_chip(cfg_chip), .cfg_usb(cfg_usb), .cfg_fc(cfg_fc),
 		.rom_wr(ioctl_wr && rom_download),
-		.rom_addr(ioctl_addr[15:0]),
+		.rom_addr(ioctl_addr[16:0]),
 		.rom_data(ioctl_dout),
 		.in_d7d6(in_d7d6), .in_d5d4(in_d5d4),
 		.in_d3d2(in_d3d2), .in_d1d0(in_d1d0),
@@ -271,7 +272,7 @@ module emu
 		.drawing(drawing), .frame_done(vec_frame_done), .vec_tick(vec_tick),
 		.snd_wr(), .snd_sel(), .ay_wr(), .ay_port(),
 		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(), .snd_data(),
-		.audio_ay(audio_ay)
+		.audio_ay(audio_ay), .audio_speech(audio_speech)
 	);
 
 	//============================================================
@@ -365,9 +366,11 @@ module emu
 	assign HDMI_BLACKOUT = 1'b0;
 	assign HDMI_BOB_DEINT = 1'b0;
 
-	// Only Zektor's PSG so far; the discrete boards, speech board and USB are
-	// the remaining audio work. Scaled to leave headroom for that mix.
-	wire [15:0] audio_mix = {2'd0, audio_ay, 3'd0};
+	// Zektor's PSG and the speech board. The discrete sound boards and the
+	// Universal Sound Board are the remaining audio work, so there is still
+	// headroom left in the mix for them.
+	wire signed [15:0] audio_mix =
+		$signed({3'd0, audio_ay, 2'd0}) + (audio_speech >>> 1);
 	assign AUDIO_L = audio_mix;
 	assign AUDIO_R = audio_mix;
 	assign AUDIO_S = 1'b1;

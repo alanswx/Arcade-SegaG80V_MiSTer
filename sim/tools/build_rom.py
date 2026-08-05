@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Build a flat ROM image per romset, in the layout the core expects.
 
-    0x0000 - 0xBFFF   maincpu   (program ROM, CPU board U25 + EPROM board)
-    0xC000 - 0xC3FF   s-c.xyt-u39 sin/cos PROM
+    0x0000 - 0xBFFF   maincpu       program ROM (CPU board U25 + EPROM board)
+    0xC000 - 0xC3FF   s-c.xyt-u39   sin/cos PROM
+    0xC400 - 0xCBFF   speech:cpu    speech board 8035 program (2K)
+    0xCC00 - 0x10BFF  speech:data   speech board LPC data (16K)
 
 Parses the ROM_START blocks straight out of MAME's segag80v.cpp so the load
 offsets cannot drift from the driver.
@@ -47,7 +49,7 @@ def build(setname, regions, romdir, outdir):
     # MAME zero-fills a ROM_REGION, and the games do read past the end of
     # their populated ROM (elim2 fetches from $8FF8 during boot), so the fill
     # value is not cosmetic — it changes what the CPU executes.
-    img = bytearray(0xC400)
+    img = bytearray(0x10C00)
 
     for fn, off, size in regions.get('maincpu', []):
         if fn not in names:
@@ -64,6 +66,12 @@ def build(setname, regions, romdir, outdir):
     if sine is None or len(sine) != 0x400:
         return None, 'sine PROM missing or wrong size'
     img[0xC000:0xC400] = sine
+
+    # Speech board, present only on Space Fury, Zektor and Star Trek.
+    for fn, off, size in regions.get('speech:cpu', []):
+        img[0xC400 + off:0xC400 + off + size] = zf.read(fn)
+    for fn, off, size in regions.get('speech:data', []):
+        img[0xCC00 + off:0xCC00 + off + size] = zf.read(fn)
 
     out = os.path.join(outdir, setname + '.rom')
     open(out, 'wb').write(bytes(img))

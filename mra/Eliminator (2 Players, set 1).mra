@@ -26,6 +26,8 @@
         <part repeat="20480">00</part>
         <!-- $C000: sin/cos PROM, X-Y Timing board U39 -->
         <part name="s-c.xyt-u39" crc="56484d19"/>
+        <part repeat="2048">00</part>
+        <part repeat="16384">00</part>
     </rom>
 
     <!-- index 1: game identifier, decoded by rtl/sega_game_pkg.sv -->

@@ -23,6 +23,13 @@
         <part repeat="28672">00</part>
         <!-- $C000: sin/cos PROM, X-Y Timing board U39 -->
         <part name="s-c.xyt-u39" crc="56484d19"/>
+        <!-- $C400: speech:cpu -->
+        <part name="808a.speech-u7" crc="5988c767"/>
+        <!-- $CC00: speech:data -->
+        <part name="970.speech-u6" crc="f3b47b36"/>
+        <part name="971.speech-u5" crc="e72bbe88"/>
+        <part name="972.speech-u4" crc="8b3da539"/>
+        <part repeat="4096">00</part>
     </rom>
 
     <!-- index 1: game identifier, decoded by rtl/sega_game_pkg.sv -->

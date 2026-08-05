@@ -4,8 +4,10 @@
 ROM layout the core expects (identical to tools/build_rom.py, so an MRA and a
 simulation image are always the same bytes):
 
-    0x0000 - 0xBFFF   maincpu   program ROM
-    0xC000 - 0xC3FF   s-c.xyt-u39 sin/cos PROM
+    0x0000 - 0xBFFF   maincpu       program ROM
+    0xC000 - 0xC3FF   s-c.xyt-u39   sin/cos PROM
+    0xC400 - 0xCBFF   speech:cpu    speech board 8035 program (2K)
+    0xCC00 - 0x10BFF  speech:data   speech board LPC data (16K)
 
 Filenames, offsets and CRCs are parsed out of MAME's segag80v.cpp so they
 cannot drift from the driver.
@@ -91,6 +93,25 @@ def emit(setname, regions, meta):
 
     parts.append('        <!-- $C000: sin/cos PROM, X-Y Timing board U39 -->')
     parts.append(f'        <part name="{sine["name"]}" crc="{sine["crc"]}"/>')
+
+    # $C400: speech board, only on Space Fury, Zektor and Star Trek
+    def region(tag, base, size):
+        items = sorted(regions.get(tag, []), key=lambda p: p['offset'])
+        if not items:
+            parts.append(f'        <part repeat="{size}">00</part>')
+            return
+        parts.append(f'        <!-- ${base:04X}: {tag} -->')
+        pos = 0
+        for it in items:
+            if it['offset'] > pos:
+                parts.append(f'        <part repeat="{it["offset"] - pos}">00</part>')
+            parts.append(f'        <part name="{it["name"]}" crc="{it["crc"]}"/>')
+            pos = it['offset'] + it['size']
+        if pos < size:
+            parts.append(f'        <part repeat="{size - pos}">00</part>')
+
+    region('speech:cpu',  0xC400, 0x0800)
+    region('speech:data', 0xCC00, 0x4000)
 
     rom_parts = '\n'.join(parts)
     parent = meta.get('parent', '')

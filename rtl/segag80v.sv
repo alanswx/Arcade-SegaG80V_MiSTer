@@ -40,7 +40,7 @@ module segag80v #(
 
 	// ---- ROM download ($0000-$BFFF program, $C000-$C3FF sin/cos PROM) ----
 	input  wire        rom_wr,
-	input  wire [15:0] rom_addr,
+	input  wire [16:0] rom_addr,
 	input  wire  [7:0] rom_data,
 
 	// ---- controls ----
@@ -77,7 +77,8 @@ module segag80v #(
 	output wire  [7:0] snd_data,
 
 	// ---- audio ----
-	output wire [10:0] audio_ay      // Zektor AY-3-8912
+	output wire [10:0] audio_ay,     // Zektor AY-3-8912
+	output wire signed [15:0] audio_speech
 );
 
 	// ------------------------------------------------------------------
@@ -127,19 +128,26 @@ module segag80v #(
 	// ------------------------------------------------------------------
 	// Program ROM, $0000-$BFFF (48K) in block RAM
 	// ------------------------------------------------------------------
-	localparam [15:0] PROM_BASE = 16'hC000;  // sin/cos PROM offset in the image
+	// ROM image layout, shared with sim/tools/build_rom.py and make_mra.py:
+	//   $00000  48K program
+	//   $0C000   1K sin/cos PROM
+	//   $0C400   2K speech board 8035 program
+	//   $0CC00  16K speech board LPC data
+	localparam [16:0] PROM_BASE   = 17'h0C000;
+	localparam [16:0] SPEECH_BASE = 17'h0C400;
 
 	wire [15:0] cpu_rom_addr;
 	logic [7:0] cpu_rom_data;
 
 	(* ramstyle = "M10K" *) logic [7:0] prog_rom [0:49151];
 
-	wire rom_wr_prog = rom_wr && (rom_addr < PROM_BASE);
-	wire rom_wr_sin  = rom_wr && (rom_addr >= PROM_BASE)
-	                          && (rom_addr < PROM_BASE + 16'd1024);
+	wire rom_wr_prog   = rom_wr && (rom_addr < PROM_BASE);
+	wire rom_wr_sin    = rom_wr && (rom_addr >= PROM_BASE)
+	                            && (rom_addr < PROM_BASE + 17'd1024);
+	wire rom_wr_speech = rom_wr && (rom_addr >= SPEECH_BASE);
 
 	always_ff @(posedge clk_vec) begin
-		if (rom_wr_prog) prog_rom[rom_addr] <= rom_data;
+		if (rom_wr_prog) prog_rom[rom_addr[15:0]] <= rom_data;
 		cpu_rom_data <= prog_rom[cpu_rom_addr];
 	end
 
@@ -205,6 +213,36 @@ module segag80v #(
 	// Zektor AY-3-8912 at $3C/$3D. The other games have no PSG; jt49 is small
 	// enough that it is left instantiated and simply never written.
 	// ------------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// Speech board (Space Fury, Zektor, Star Trek)
+	// ------------------------------------------------------------------
+	sega_speech #(.CLK_HZ(CLK_HZ)) speech (
+		.clk       (clk_vec),
+		.reset     (reset),
+		.data_wr   (speech_data_stb),
+		.ctrl_wr   (speech_ctrl_stb),
+		.din       (snd_data),
+		.rom_wr    (rom_wr_speech),
+		.rom_addr  (rom_addr[14:0] - SPEECH_BASE[14:0]),
+		.rom_data  (rom_data),
+		.usb_audio (16'sd0),          // the USB is not implemented yet
+		.audio     (audio_speech)
+	);
+
+	// $38 and $3B are levels for the whole I/O cycle; strobe once at the end.
+	logic sp_data_d, sp_ctrl_d;
+	always_ff @(posedge clk_vec) begin
+		if (reset) begin
+			sp_data_d <= 1'b0;
+			sp_ctrl_d <= 1'b0;
+		end else begin
+			sp_data_d <= speech_data_wr;
+			sp_ctrl_d <= speech_ctrl_wr;
+		end
+	end
+	wire speech_data_stb = ~speech_data_wr && sp_data_d;
+	wire speech_ctrl_stb = ~speech_ctrl_wr && sp_ctrl_d;
+
 	sega_ay #(.CLK_HZ(CLK_HZ)) ay (
 		.clk      (clk_vec),
 		.reset    (reset),

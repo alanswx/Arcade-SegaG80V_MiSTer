@@ -27,7 +27,10 @@
 #include "Vboot_wrap.h"
 #include "verilated.h"
 
-static const int ROM_SIZE = 0xC400;
+// The full image is 0x10C00 (program, sin PROM, speech CPU, speech data).
+// This bench drives only the CPU and X-Y boards, so it needs the first 0xC400.
+static const int ROM_SIZE  = 0x10C00;
+static const int ROM_NEEDED = 0xC400;
 
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
@@ -42,8 +45,8 @@ int main(int argc, char **argv) {
 	if (!f) { printf("cannot open %s\n", rompath); return 2; }
 	size_t got = fread(rom, 1, ROM_SIZE, f);
 	fclose(f);
-	if (got != ROM_SIZE) {
-		printf("%s is %zu bytes, expected %d\n", rompath, got, ROM_SIZE);
+	if (got < ROM_NEEDED) {
+		printf("%s is %zu bytes, need at least %d\n", rompath, got, ROM_NEEDED);
 		return 2;
 	}
 

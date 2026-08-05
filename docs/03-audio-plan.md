@@ -8,7 +8,7 @@ where the real thing is knowable.**
 | # | Subsystem | Games | Status |
 |---|---|---|---|
 | 1 | AY-3-8912 | Zektor | **done** |
-| 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | **SP0250 done**, 8035 glue next |
+| 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | **done**, unheard on hardware |
 | 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | after |
 | 4 | Discrete boards | Eliminator, Space Fury, Zektor | last, open-ended |
 
@@ -32,7 +32,7 @@ is a level held for the whole cycle and `ce_cpu` pulses several times inside
 one; strobing per enable writes the register repeatedly. This is the same trap
 the `$BD/$BE` multiplier hit — see `rtl/segag80v_cpu.sv`.
 
-## 2. Speech board — SP0250 done, board glue next
+## 2. Speech board — done, not yet heard
 
 **Hardware:** 8035 @ 3.12 MHz + **SP0250** LPC synthesiser, drawing 800-0294
 (`refs/schematics/Speech_Board_800-0294_sheet5of5.png`). Reached at `$38`
@@ -77,8 +77,8 @@ Notes worth keeping:
   decision at the same logical instant. Comparing at the wrong point makes the
   FIFO states disagree for those nine clocks and the frames misalign.
 
-**Still to do — the board glue.** `rtl/sound/sega_speech.sv`: `i8035.v`
-(vendored) with the port wiring from `segaspeech.cpp`:
+**Board glue: done.** `rtl/sound/sega_speech.sv`, with the port wiring from
+`segaspeech.cpp`:
 
 | Signal | Behaviour |
 |---|---|
@@ -94,8 +94,31 @@ Notes worth keeping:
 `$38` writes the latch, `$3B` is control: bit 3 gates speech output, bit 5
 gates the off-board (USB) audio on Star Trek.
 
-ROM: `speech:cpu` 2 KB mirrored at `$0800`, `speech:data` up to 12 KB. Both
-`build_rom.py` and `make_mra.py` need extending to place them.
+Two details that are easy to get wrong:
+
+* **`I_EA` must be high.** The 8035 has no internal ROM — that is what
+  distinguishes it from the 8048 — so it always fetches externally.
+* **P2 is multiplexed.** The low nibble carries PC[11:8] during a program
+  fetch and the written P2 register otherwise, exactly as on the real part.
+  That is fine to use live for both the program address and the speech-data
+  bank, because PSEN and RD never overlap. MAME sidesteps this by tracking the
+  register in its `p2_w` callback and handling program fetch internally.
+
+ROM image, now shared by `build_rom.py` and `make_mra.py`:
+
+```
+$00000  48K  program
+$0C000   1K  sin/cos PROM
+$0C400   2K  speech board 8035 program (mirrored at $0800 in its own space)
+$0CC00  16K  speech board LPC data
+```
+
+Every MRA is checked to assemble byte-identical to the simulation image, so
+what lands in FPGA memory is what the bench boots.
+
+**Unverified:** none of this has been heard. The SP0250 is bit-exact against
+MAME and the glue lints clean, but the 8035 has never been observed executing
+the speech program. See `HARDWARE-CHECKS.md`.
 
 **Note:** MAME's `segag80v.h` still `#include`s `tms5110.h`, which is
 misleading — the real part is the SP0250 (`segaspeech.cpp` includes

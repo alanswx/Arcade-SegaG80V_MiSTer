@@ -21,6 +21,11 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/segag80v_cpu.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/xy/sega_xy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/xy/sega_xy_top.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/sega_ay.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/sp0250.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/sega_speech.sv
+set_global_assignment -name VERILOG_FILE rtl/i8035/i8035.v
+set_global_assignment -name VERILOG_FILE rtl/spram.v
+set_global_assignment -name QIP_FILE rtl/tv48/t48.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/segag80v.sv
 
 # --- video ------------------------------------------------------------------

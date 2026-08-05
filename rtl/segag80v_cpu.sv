@@ -72,6 +72,9 @@ module segag80v_cpu #(
 	output wire  [7:0] io_dout,
 
 	output logic [1:0] coin_counter,
+	output wire        dbg_irq,
+	output wire  [1:0] dbg_coin_ff,
+	output wire        dbg_int_ack,
 
 	// debug: PC of the opcode that armed the scrambler
 	output wire [15:0] dbg_op_addr
@@ -423,6 +426,9 @@ module segag80v_cpu #(
 	end
 
 	assign int_n = ~irq_line;
+	assign dbg_irq     = irq_line;
+	assign dbg_coin_ff = coin_ff;
+	assign dbg_int_ack = int_ack;
 
 	// the service switch also pulses NMI
 	always_ff @(posedge clk) begin

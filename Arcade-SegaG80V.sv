@@ -280,7 +280,8 @@ module emu
 		.dbg_usb_cfg(), .dbg_usb_env(),
 		.dbg_sp_prog_addr(), .dbg_sp_wr(), .dbg_sp_data(), .dbg_sp_drq(),
 		.dbg_sp_t0(), .dbg_sp_p1(), .dbg_sp_rd_n(), .dbg_sp_data_addr(),
-		.dbg_sp_int_n(), .dbg_sp_dac()
+		.dbg_sp_int_n(), .dbg_sp_dac(), .coin_counter(),
+		.dbg_irq(), .dbg_coin_ff(), .dbg_int_ack()
 	);
 
 	//============================================================

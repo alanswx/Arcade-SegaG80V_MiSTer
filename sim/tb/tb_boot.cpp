@@ -54,6 +54,9 @@ int main(int argc, char **argv) {
 	const int   snap_at  = getenv("SNAPAT") ? atoi(getenv("SNAPAT")) : 0;
 	const long  trace_n  = getenv("TRACE")  ? atol(getenv("TRACE"))  : 0;
 	const char *dumpvram = getenv("DUMPVRAM");
+	// COINAT=<frame> drops a coin (and then presses start) so the attract
+	// screen's CREDITS counter can be checked in a rendered snapshot.
+	const int coinat = getenv("COINAT") ? atoi(getenv("COINAT")) : -1;
 	// LOGWRITES=<path>: record the first N post-scramble vector-RAM writes so
 	// the stream can be diffed against MAME's (tools/tap_vram.lua).
 	const char *logwrites = getenv("LOGWRITES");
@@ -114,6 +117,12 @@ int main(int argc, char **argv) {
 	const long MAX_CLOCKS = 12000000L * frames / 40 + 4000000L;
 
 	for (long c = 0; c < MAX_CLOCKS && frames_done < frames; c++) {
+		if (coinat >= 0) {
+			// coin held for ~4 frames, then START1 pressed repeatedly
+			dut->coin_a = (frames_done >= coinat && frames_done < coinat + (getenv("COINFOR") ? atoi(getenv("COINFOR")) : 4)) ? 0 : 1;
+			bool st = (frames_done >= coinat + 8) && ((frames_done / 4) & 1);
+			dut->in_d5d4 = st ? (uint8_t)(0xFF & ~0x02) : 0xFF;
+		}
 		tick();
 		clocks++;
 

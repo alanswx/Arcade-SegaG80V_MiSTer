@@ -166,6 +166,9 @@ int main(int argc, char **argv) {
 	// that never ran at all.
 	long frames = 0, ay_writes = 0, sp_data = 0, sp_ctrl = 0, usb_writes = 0;
 	long beam_on = 0;
+	long coin_pulses = 0;
+	bool p_coin = false, p_cff = false, p_irq = false;
+	long irqs = 0;
 	bool p_done = false, p_ay = false, p_spd = false, p_spc = false, p_usb = false;
 	// speech board internals
 	std::set<int> sp_pc;
@@ -174,18 +177,36 @@ int main(int argc, char **argv) {
 	bool p_drq = false, p_t0 = false;
 	long sp_reads = 0;
 	std::set<int> sp_daddr;
+	std::vector<int> pctrace;
 
 	for (long c = 0; c < total; c++) {
 		double t = (double)c / CLK_HZ;
 
 		// MiSTer joystick bits: 8 = start1, 10 = coin
+		// Two coins, then press start once a second for the rest of the run.
+		// A single short press is easy for a game to miss between polls.
 		uint32_t j = 0;
-		if (t >= COIN_AT  && t < COIN_AT  + COIN_FOR)  j |= 1u << 10;
-		if (t >= START_AT && t < START_AT + START_FOR) j |= 1u << 8;
+		if ((t >= COIN_AT && t < COIN_AT + COIN_FOR) ||
+		    (t >= COIN_AT + 0.5 && t < COIN_AT + 0.5 + COIN_FOR)) j |= 1u << 10;
+		if (t >= START_AT) {
+			double ph = t - START_AT;
+			if (ph - (long)ph < 0.30) j |= 1u << 8;
+		}
 		dut->joy1 = j;
 
 		tick();
 
+		if (dut->dbg_coin_ff && !p_cff)
+			printf("    t=%7.3f  coin flip-flop SET (%d)\n", t, dut->dbg_coin_ff);
+		p_cff = (dut->dbg_coin_ff != 0);
+		if (dut->dbg_irq && !p_irq) { irqs++; if (t > 7.9 && t < 8.6)
+			printf("    t=%7.3f  IRQ asserted\n", t); }
+		p_irq = dut->dbg_irq;
+		if (dut->coin_counter && !p_coin) {
+			coin_pulses++;
+			printf("    t=%7.3f  coin counter pulse\n", t);
+		}
+		p_coin = dut->coin_counter;
 		if (dut->frame_done && !p_done) frames++;
 		p_done = dut->frame_done;
 		if (dut->vec_valid && dut->vec_beam) beam_on++;
@@ -195,7 +216,7 @@ int main(int argc, char **argv) {
 		// the trailing edge, which is where the board latches
 		if (!dut->speech_data_wr && p_spd) {
 			sp_data++;
-			if (sp_data <= 24)
+			if (sp_data <= 60)
 				printf("    t=%7.3f  speech DATA <- %02X\n", t, dut->snd_data);
 		}
 		p_spd = dut->speech_data_wr;
@@ -223,6 +244,16 @@ int main(int argc, char **argv) {
 				sp_daddr.insert((int)dut->dbg_sp_data_addr);
 			}
 			sp_pc.insert((int)dut->dbg_sp_prog_addr);
+			// fetch-sequence trace: prog_addr only changes at ALE, so logging
+			// changes gives the fetch order including operand bytes
+			{
+				static int last_pa = -1;
+				int pa = (int)dut->dbg_sp_prog_addr;
+				if (pa != last_pa) {
+					if (t > 0.15 && (long)pctrace.size() < 4000) pctrace.push_back(pa);
+					last_pa = pa;
+				}
+			}
 			if (dut->dbg_sp_wr) sp_frames++;
 			if (dut->dbg_sp_drq && !p_drq) sp_drq_edges++;
 			p_drq = dut->dbg_sp_drq;
@@ -290,8 +321,15 @@ int main(int argc, char **argv) {
 	printf("  %ld samples at %d Hz (%.1f s)\n", (long)w_mix.size(), SAMPLE_HZ,
 	       (double)w_mix.size() / SAMPLE_HZ);
 	printf("  machine: %ld frames drawn, %ld beam-on samples\n", frames, beam_on);
+	printf("  coin counter pulses: %ld, IRQ assertions %ld\n", coin_pulses, irqs);
 	printf("  writes:  AY %ld, speech data %ld ctrl %ld, USB %ld\n",
 	       ay_writes, sp_data, sp_ctrl, usb_writes);
+	if (G.speech && !pctrace.empty()) {
+		FILE *tf = fopen("audio/pctrace.txt", "w");
+		for (int a : pctrace) fprintf(tf, "%03X\n", a);
+		fclose(tf);
+		printf("  wrote %zu fetch addresses to audio/pctrace.txt\n", pctrace.size());
+	}
 	if (G.speech) {
 		printf("  8035 program addresses touched:");
 		int n = 0;

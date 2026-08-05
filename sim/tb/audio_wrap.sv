@@ -52,7 +52,11 @@ module audio_wrap (
 	output wire        dbg_sp_rd_n,
 	output wire [13:0] dbg_sp_data_addr,
 	output wire        dbg_sp_int_n,
-	output wire signed [7:0] dbg_sp_dac
+	output wire signed [7:0] dbg_sp_dac,
+	output wire  [1:0] coin_counter,
+	output wire        dbg_irq,
+	output wire  [1:0] dbg_coin_ff,
+	output wire        dbg_int_ack
 );
 
 	wire [2:0] cfg_chip, cfg_orient;
@@ -101,7 +105,9 @@ module audio_wrap (
 		.dbg_sp_drq(dbg_sp_drq), .dbg_sp_t0(dbg_sp_t0),
 		.dbg_sp_p1(dbg_sp_p1), .dbg_sp_rd_n(dbg_sp_rd_n),
 		.dbg_sp_data_addr(dbg_sp_data_addr),
-		.dbg_sp_int_n(dbg_sp_int_n), .dbg_sp_dac(dbg_sp_dac)
+		.dbg_sp_int_n(dbg_sp_int_n), .dbg_sp_dac(dbg_sp_dac),
+		.coin_counter(coin_counter),
+		.dbg_irq(dbg_irq), .dbg_coin_ff(dbg_coin_ff), .dbg_int_ack(dbg_int_ack)
 	);
 
 endmodule

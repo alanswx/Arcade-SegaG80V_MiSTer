@@ -97,7 +97,11 @@ module segag80v #(
 	output wire        dbg_sp_rd_n,
 	output wire [13:0] dbg_sp_data_addr,
 	output wire        dbg_sp_int_n,
-	output wire signed [7:0] dbg_sp_dac
+	output wire signed [7:0] dbg_sp_dac,
+	output wire  [1:0] coin_counter,
+	output wire        dbg_irq,
+	output wire  [1:0] dbg_coin_ff,
+	output wire        dbg_int_ack
 );
 
 	// ------------------------------------------------------------------
@@ -217,7 +221,8 @@ module segag80v #(
 		.usb_data_wr    (usb_data_wr),
 		.usb_status     (usb_status),
 		.io_dout    (),
-		.coin_counter (),
+		.coin_counter (coin_counter),
+		.dbg_irq(dbg_irq), .dbg_coin_ff(dbg_coin_ff), .dbg_int_ack(dbg_int_ack),
 		.dbg_op_addr  ()
 	);
 

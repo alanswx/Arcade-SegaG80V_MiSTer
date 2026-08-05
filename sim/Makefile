@@ -142,7 +142,7 @@ obj_cpu/Vsegag80v_cpu: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
 		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
 		--no-timing -CFLAGS "-I../golden" \
-		--Mdir obj_cpu --top-module audio_wrap_cpu \
+		--Mdir obj_cpu --top-module segag80v_cpu \
 		-I$(RTL)/tv80 \
 		$(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
 		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \
@@ -156,7 +156,7 @@ obj_cpu0/Vsegag80v_cpu: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
 		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
 		--no-timing -CFLAGS "-I../golden" \
-		--Mdir obj_cpu0 --top-module audio_wrap_cpu -GWAIT_STATES=0 \
+		--Mdir obj_cpu0 --top-module segag80v_cpu -GWAIT_STATES=0 \
 		-I$(RTL)/tv80 \
 		$(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
 		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \
@@ -168,7 +168,7 @@ obj_cpu1/Vsegag80v_cpu: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
 		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
 		--no-timing -CFLAGS "-I../golden" \
-		--Mdir obj_cpu1 --top-module audio_wrap_cpu -GWAIT_STATES=1 \
+		--Mdir obj_cpu1 --top-module segag80v_cpu -GWAIT_STATES=1 \
 		-I$(RTL)/tv80 \
 		$(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
 		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \

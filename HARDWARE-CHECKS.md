@@ -87,7 +87,64 @@ The only game with swapped axes (`SWAP_XY | FLIP_X | FLIP_Y`), rendered into a
 portrait 832×1024 target. **Check:** it is rotated the right way and fills the
 screen sensibly at 720p and 1080p.
 
-### 7. Audio — KNOWN BROKEN, do not spend a build on it
+### 7a. FOUND: the t48 core ignored T0 (fixed)
+
+`rtl/tv48/t48_core.v` passed both T0 and T1 into the conditional-branch unit
+through a std_logic table lookup that the VHDL-to-Verilog translation gets
+wrong. `t1_i` had already been bypassed with a hand edit; `t0_i` had not. The
+result was that **`JT0` / `JNT0` never saw the pin**, so `JNT0` took its branch
+forever.
+
+That is exactly what the Sega speech board polls to notice a pending word:
+
+```
+22E: JT1 239      ; DRQ set -> feed the SP0250 a frame   (worked: T1 was patched)
+230: JNT0 22E     ; T0 clear -> keep waiting             (never fell through)
+232: IN A,P1      ; T0 set -> read the word number
+233: CALL 43B     ; ack: OUTL P1,#7F pulses P1.7 low, clearing T0
+```
+
+So the 8035 sat in that four-instruction loop forever, dutifully feeding the
+SP0250 silence, which is why the board fed exactly 15 bytes per DRQ and every
+byte was 00. With `t0_i` wired directly the program advances: addresses touched
+went 166 -> 299 and all three of Space Fury's power-on words are now consumed.
+
+This affects **both** sound boards — they are the only users of `i8035`.
+
+### 7b. Still silent: the games do not ask for speech
+
+Fixing T0 did not by itself produce audio, because in a 25 s run Space Fury
+only ever sends its three power-on bytes (`3F`, `0F`, `0E`). Disassembling the
+handler shows that sequence is a **parameter-setting command** — it stores two
+nibbles into internal RAM at 0x3C/0x3E and returns to the dispatcher. It is not
+"speak". The game never sends a speak command because it never leaves attract.
+
+### 7c. FOUND: coins never credit
+
+The attract screen renders correctly (`sim/tools/render.cpp` on a vector RAM
+snapshot shows the Space Fury title, ship, high scores and `CREDITS 00`), so
+the machine is healthy. But a coin does nothing:
+
+- the coin flip-flop in `segag80v_cpu.sv` **does** set, and the Z80 IRQ **does**
+  fire — both confirmed by tapping `dbg_coin_ff` / `dbg_irq`
+- yet `CREDITS` stays at 00, no `$F9` coin-counter write ever happens, and
+  START1 is ignored no matter how often it is pressed
+- holding the coin low for 250 frames (6+ seconds) produces a **byte-identical**
+  vector RAM snapshot to a run with no coin at all
+
+So the interrupt path works and the port-read path does not: the game takes the
+coin interrupt and then reads a coin bit that is not there. `in_d7d6_live` puts
+`coin_a` at bit 0 and `coin_b` at bit 4, which matches MAME's `D7D6` port and
+the `D7`/`D6` LS253 table in the driver comments — so the fault is more likely
+in how `sega_ports.sv` muxes those bits than in the assignment. Note that
+`make ports` passing does not clear this: the model it checks against was
+transcribed by the same hand as the RTL.
+
+**This is bigger than audio — it means no game can be started on hardware.**
+Reproduce with `COINAT=100 COINFOR=250 DUMPVRAM=/tmp/v.bin ./obj_boot/Vboot_wrap
+roms/spacfury.rom 3 400 0`, then render and look at CREDITS.
+
+### 7d. Audio — KNOWN BROKEN, do not spend a build on it
 
 **2026-08-04: neither sound board produces audio in the assembled machine.**
 Every component passes its bench (17/17, including bit-exact 8253, MM5837 and

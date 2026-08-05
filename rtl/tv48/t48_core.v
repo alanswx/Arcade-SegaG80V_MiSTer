@@ -714,7 +714,15 @@ module t48_core
     .compute_take_i(cnd_compute_take_s),
     .branch_cond_i(cnd_branch_cond_s),
     .accu_i(alu_data_s),
-    .t0_i(n449_o),
+    // Both T0 and T1 reach the conditional-branch unit through a std_logic
+    // table lookup that this VHDL-to-Verilog translation gets wrong, so JT0 /
+    // JNT0 / JT1 / JNT1 never see the pin. t1_i was already bypassed here;
+    // t0_i had not been, which left JNT0 permanently taking its branch. The
+    // Sega speech board polls exactly that instruction to notice a pending
+    // word, so its 8035 sat in a 4-instruction loop forever and the board was
+    // silent. See sim/tb/tb_i8035.cpp, which tests all four instructions.
+    //.t0_i(n449_o),
+    .t0_i(t0_i),
     //.t1_i(n466_o),
     .t1_i(t1_i),
     .int_n_i(int_n_i),

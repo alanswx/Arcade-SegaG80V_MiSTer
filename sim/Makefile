@@ -9,9 +9,9 @@ RTL      := ../rtl
 VFLAGS   := -Wall -Wno-fatal --cc --exe --build -j 0 -O2 \
             -CFLAGS "-O2 -std=c++17"
 
-.PHONY: all security ports color6 geometry xy xy1 cpu boot clean
+.PHONY: all security ports color6 geometry sp0250 xy xy1 cpu boot clean
 
-all: security ports color6 geometry xy xy1 cpu boot
+all: security ports color6 geometry sp0250 xy xy1 cpu boot
 
 # ---------------------------------------------------------------------------
 
@@ -22,6 +22,18 @@ obj_security/Vsega_security_scramble: $(RTL)/sega_security.sv tb/tb_security.cpp
 
 security: obj_security/Vsega_security_scramble
 	@./obj_security/Vsega_security_scramble
+
+# ---------------------------------------------------------------------------
+
+obj_sp0250/Vsp0250: $(RTL)/sound/sp0250.sv tb/tb_sp0250.cpp \
+                    golden/sp0250_golden.cpp golden/sp0250_golden.h
+	verilator $(VFLAGS) --Mdir obj_sp0250 \
+		--top-module sp0250 \
+		-CFLAGS "-I../golden" \
+		$(RTL)/sound/sp0250.sv tb/tb_sp0250.cpp golden/sp0250_golden.cpp
+
+sp0250: obj_sp0250/Vsp0250
+	@./obj_sp0250/Vsp0250
 
 # ---------------------------------------------------------------------------
 
@@ -159,4 +171,4 @@ xy1: obj_xy1/Vsega_xy
 	@./obj_xy1/Vsega_xy 1
 
 clean:
-	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1
+	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_sp0250 obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1

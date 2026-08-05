@@ -8,7 +8,7 @@ where the real thing is knowable.**
 | # | Subsystem | Games | Status |
 |---|---|---|---|
 | 1 | AY-3-8912 | Zektor | **done** |
-| 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | next |
+| 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | **SP0250 done**, 8035 glue next |
 | 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | after |
 | 4 | Discrete boards | Eliminator, Space Fury, Zektor | last, open-ended |
 
@@ -32,7 +32,7 @@ is a level held for the whole cycle and `ce_cpu` pulses several times inside
 one; strobing per enable writes the register repeatedly. This is the same trap
 the `$BD/$BE` multiplier hit — see `rtl/segag80v_cpu.sv`.
 
-## 2. Speech board — next
+## 2. Speech board — SP0250 done, board glue next
 
 **Hardware:** 8035 @ 3.12 MHz + **SP0250** LPC synthesiser, drawing 800-0294
 (`refs/schematics/Speech_Board_800-0294_sheet5of5.png`). Reached at `$38`
@@ -52,13 +52,50 @@ the MRA and `build_rom.py` both need extending to place them.
   coefficient tables. Being able to encode as well as decode makes this
   testable end to end.
 
-**Verification plan**, mirroring how the vector generator was done:
-1. Port MAME's `sp0250.cpp` to a standalone C++ golden model.
-2. Write `rtl/sound/sp0250.sv` and diff its sample stream against the golden
-   model, driven by the real LPC data from the ROMs.
-3. Boot-level: run `spacfury` under the existing `tb_boot` harness with the
-   speech board attached and confirm the 8035 fetches and the `$38/$3B`
-   handshake match MAME's.
+**SP0250: done and verified.** `rtl/sound/sp0250.sv`, checked against a C++
+port of MAME's model (`sim/golden/sp0250_golden.*`) by `make sp0250`:
+
+```
+sp0250: 100000 samples, 15660 frame bytes, 0 failed
+  coverage: 94760 non-zero samples, 128 distinct DAC values of 128
+```
+
+Every one of the 128 possible DAC values is exercised, so this is a real
+sample-for-sample match and not a lucky quiet stretch.
+
+Notes worth keeping:
+
+* The lattice arithmetic **wraps at 16 bits** in the original
+  (`z0 = in + ((z1*F)>>8) + ((z2*B)>>9)` on `int16_t`). The RTL truncates
+  rather than saturating, deliberately.
+* The LFSR is used **after** clocking, not before — getting that backwards
+  costs you every unvoiced sample.
+* The DAC is `z0 >> 6` as a signed 10-bit value, then clamped to -64..63.
+* The RTL decides whether to load a frame at the *start* of a sample, nine
+  clocks before it emits it, where MAME decides at emit time. The bench steps
+  the model on `sample_start` and compares on `sample_stb` so both make the
+  decision at the same logical instant. Comparing at the wrong point makes the
+  FIFO states disagree for those nine clocks and the frames misalign.
+
+**Still to do — the board glue.** `rtl/sound/sega_speech.sv`: `i8035.v`
+(vendored) with the port wiring from `segaspeech.cpp`:
+
+| Signal | Behaviour |
+|---|---|
+| P1 in | `latch & 0x7F` |
+| P1 out | bit 7 low clears T0 |
+| P2 out | speech-data ROM bank, `[5:0]` selects a 256-byte page |
+| I/O read | `speech_data[0x100 * (P2 & 0x3F) + addr]` |
+| I/O write | SP0250 frame byte |
+| T0 | set when latch bit 7 goes 0 -> 1 |
+| T1 | SP0250 DRQ |
+| INT | latch bit 7 inverted |
+
+`$38` writes the latch, `$3B` is control: bit 3 gates speech output, bit 5
+gates the off-board (USB) audio on Star Trek.
+
+ROM: `speech:cpu` 2 KB mirrored at `$0800`, `speech:data` up to 12 KB. Both
+`build_rom.py` and `make_mra.py` need extending to place them.
 
 **Note:** MAME's `segag80v.h` still `#include`s `tms5110.h`, which is
 misleading — the real part is the SP0250 (`segaspeech.cpp` includes

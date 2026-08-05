@@ -252,6 +252,7 @@ module emu
 	wire signed [15:0] audio_ay;
 	wire signed [15:0] audio_speech;
 	wire signed [15:0] audio_usb;
+	wire signed [15:0] audio_discrete;
 	wire       vec_tick;
 	wire [9:0] vec_x, vec_y;
 	wire [5:0] vec_colour;
@@ -262,6 +263,7 @@ module emu
 		.reset(machine_reset),
 		.pause(pause_cpu),
 		.cfg_chip(cfg_chip), .cfg_usb(cfg_usb), .cfg_speech(cfg_speech),
+		.cfg_game(game),
 		.cfg_fc(cfg_fc),
 		.rom_wr(ioctl_wr && rom_download),
 		.rom_addr(ioctl_addr[16:0]),
@@ -277,6 +279,7 @@ module emu
 		.snd_wr(), .snd_sel(), .ay_wr(), .ay_port(),
 		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(), .snd_data(),
 		.audio_ay(audio_ay), .audio_speech(audio_speech), .audio_usb(audio_usb),
+		.audio_discrete(audio_discrete),
 		.dbg_usb_tick(), .dbg_usb_noise(), .dbg_usb_tmr(),
 		.dbg_usb_cfg(), .dbg_usb_env(),
 		.dbg_sp_prog_addr(), .dbg_sp_wr(), .dbg_sp_data(), .dbg_sp_drq(),
@@ -385,11 +388,12 @@ module emu
 	// audio_speech via the CD4053, so audio_usb is zero there and this never
 	// double-counts it. The discrete sound boards are still to come.
 	// Boards are summed at full weight and saturated. Each one is scaled so
-	// its own peaks land near -10 dBFS, and no game runs more than two at
+	// its own peaks land near -10 dBFS, and no game runs more than three at
 	// once, so this keeps a sensible output level without clipping.
 	wire signed [17:0] audio_sum =
 		{{2{audio_ay[15]}}, audio_ay} + {{2{audio_speech[15]}}, audio_speech}
-		+ {{2{audio_usb[15]}}, audio_usb};
+		+ {{2{audio_usb[15]}}, audio_usb}
+		+ {{2{audio_discrete[15]}}, audio_discrete};
 	wire signed [15:0] audio_mix =
 		(audio_sum >  18'sd32767) ?  16'sh7FFF :
 		(audio_sum < -18'sd32768) ? -16'sh8000 : audio_sum[15:0];

@@ -113,63 +113,52 @@ This affects **both** sound boards — they are the only users of `i8035`.
 
 ### 7b. Sound status by game (2026-08-05)
 
-All four implemented boards now produce audio from a running game. Measured by
+All boards are now implemented and every game makes sound. Measured by
 `make audio`, which coins up, starts, and records 30 s at 48 kHz.
 
-| Game | Boards fitted | State | Level |
+| Game | Boards | State | Level |
 |---|---|---|---|
-| Eliminator 2P/4P | discrete only | **silent — board not implemented** | — |
-| Space Fury | speech + discrete | speech **works**; discrete not implemented | speech -6.2 dBFS |
-| Zektor | AY-3-8912 + speech + discrete | AY **works**, speech **works**; discrete not implemented | AY -30.1, speech -6.0 dBFS |
-| Tac/Scan | Universal Sound Board | **works** | -9.4 dBFS |
-| Star Trek | speech + USB (through the speech CD4053) | **works**, both | speech -14.9 dBFS |
+| Eliminator 2P/4P | discrete | works | -10.3 dBFS |
+| Space Fury | speech + discrete | both work | speech -13.4, discrete -10.3 |
+| Zektor | AY + speech + discrete | all work | AY -12.1, speech -13.2, discrete -10.3 |
+| Tac/Scan | Universal Sound Board | works | -9.4 dBFS |
+| Star Trek | speech + USB via CD4053 | both work | speech -15.8 dBFS |
 
-The Universal Sound Board's fixed-point analog chain tracks MAME's
-double-precision model on real gameplay, not just synthetic stimulus:
+Everything now lands between -9 and -16 dBFS, so the boards sit together
+without one burying another.
 
-```
-USB analog chain, RTL vs MAME, on real Tac/Scan gameplay:
-  correlation 0.999587   rms ratio 0.9990
-```
+**How much to trust each board.** This matters, because they are not equal:
 
-Two things that took a while to learn and are worth keeping:
+| Board | Verification |
+|---|---|
+| 8253, MM5837, SP0250 | bit-exact against MAME, exhaustive benches |
+| USB analog chain | correlation 0.999587 with MAME on real gameplay |
+| Speech output filter | transcribed from `nl_segaspeech.cpp`; spectral match to a cabinet recording 0.84 |
+| **Discrete boards** | **behavioural reconstruction, nothing to diff against** |
 
-- **Coin pulse width matters.** Space Fury's routine counts down from 231
-  retries at ~0.67 ms while waiting for release, and rejects the coin if the
-  loop runs out (>~155 ms, "stuck coin") or too few retries elapsed (<~21 ms,
-  "bounce"). 100 ms works.
-- **Start must be pulsed, not held.** The games sample START at specific points
-  and want to see it released between presses. `make audio` pulses it at 5 Hz.
+The discrete boards are the weak link and are labelled as such in the source.
+MAME models them only as netlists — 30 KB each of 555s, CA3080 OTAs and CD4011
+one-shots — so there is no simplified model to port and no reference to check
+against. What is faithful is the bit-to-sound map, taken from the ALIAS lines
+in `nl_elim.cpp` and `nl_spacfury.cpp`, and the fact that **the latch bits are
+active low** (the games park $3E/$3F at $FF and pull a bit low to trigger;
+getting that backwards turns every voice on at once, which is how it was found).
+The envelope times and pitches are estimates. Only one is grounded: Eliminator
+and Zektor's U13 is a 555 astable at R59 2k + R61 47k + C30 0.022uF = 682 Hz,
+which sets the torpedo.
 
-### 7c. Known gap: the speech board has no output filter
+**So the discrete boards need an ear more than anything else in this core.**
+Expect the right *kind* of sound in the right place at the right time, but not
+the right timbre. Per-channel netlist tracing is the way to tighten them.
 
-Comparing `spacfury_speech.wav` against a real cabinet recording shows the core
-carrying much more energy above 700 Hz:
+### 7c. Known gap: the speech board filter corner
 
-```
-  band(Hz)    arcade    core
-      163     0.133    0.041
-      434     0.137    0.108
-      903     0.013    0.070
-     1880     0.008    0.053
-     3066     0.002    0.046
-  spectral-shape correlation 0.24
-```
-
-The cause is identified: **nothing filters the SP0250 output.** The raw DAC is a
-10 kHz sample-and-hold and sounds correspondingly bright. MAME does not filter
-it either — `segaspeech.cpp` has `#define ENABLE_NETLIST_FILTERING (0)`, so its
-default path routes the SP0250 straight out, which is what this core matches.
-The real board has an op-amp filter (R17-R21, C9/C10/C50 in
-`refs/mame/nl_segaspeech.cpp`) that MAME only models in the disabled netlist
-path.
-
-So the speech *content* is right — the SP0250 is bit-exact against MAME and the
-8035 runs the real program — but the *tone* will be brighter than a cabinet
-until that filter is added. It is small: five resistors and three caps, the
-same shift-add treatment as `usb_filter.sv`. Some of the low-frequency
-difference above is also the cabinet speaker and the recording chain, so do not
-chase the numbers exactly.
+`speech_filter.sv` uses the 0.047u C10 the netlist specifies, giving a 167.5 Hz
+low pass. That is aggressive for speech, and 0.047u is a small value to read off
+a schematic, so the module has a `C10_TENTH` parameter that moves it to
+1675 Hz. The measured spectral match against a cabinet recording went from 0.24
+unfiltered to 0.84 filtered, so 167 Hz is defensible — but if it sounds muffled
+on hardware, try the parameter before assuming the filter is wrong.
 
 ### 7d. Audio — what is still unheard on hardware
 

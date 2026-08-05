@@ -39,6 +39,7 @@ module segag80v #(
 	input  wire  [2:0] cfg_chip,     // security chip, see sega_security_pkg
 	input  wire        cfg_usb,      // Universal Sound Board RAM at $D000
 	input  wire        cfg_speech,   // speech board fitted
+	input  wire  [2:0] cfg_game,     // sega_game_pkg id, for the discrete board
 	input  wire  [1:0] cfg_fc,       // 0 = plain, 1 = spinner, 2 = elim4
 
 	// ---- ROM download ($0000-$BFFF program, $C000-$C3FF sin/cos PROM) ----
@@ -83,6 +84,7 @@ module segag80v #(
 	output wire signed [15:0] audio_ay,   // Zektor AY-3-8912
 	output wire signed [15:0] audio_speech,
 	output wire signed [15:0] audio_usb,
+	output wire signed [15:0] audio_discrete,
 
 	// simulation taps into the Universal Sound Board, see sega_usb.sv
 	output wire        dbg_usb_tick,
@@ -307,6 +309,25 @@ module segag80v #(
 		end
 	end
 	wire speech_data_stb = ~speech_data_wr && sp_data_d;
+
+	// ------------------------------------------------------------------
+	// Discrete sound board (Eliminator, Zektor, Space Fury)
+	// ------------------------------------------------------------------
+	logic snd_wr_d;
+	always_ff @(posedge clk_vec) begin
+		if (reset) snd_wr_d <= 1'b0;
+		else       snd_wr_d <= snd_wr;
+	end
+
+	sega_discrete #(.CLK_HZ(CLK_HZ)) disc (
+		.clk   (clk_vec),
+		.reset (reset),
+		.game  (cfg_game),
+		.wr    (~snd_wr && snd_wr_d),
+		.sel   (snd_sel[0]),
+		.din   (snd_data),
+		.audio (audio_discrete)
+	);
 	wire speech_ctrl_stb = ~speech_ctrl_wr && sp_ctrl_d;
 	wire usb_data_stb    = ~usb_data_wr    && usb_data_d;
 

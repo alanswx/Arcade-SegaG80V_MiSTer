@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <vector>
+#include <map>
 #include <string>
 #include "Vaudio_wrap.h"
 #include "verilated.h"
@@ -47,16 +48,16 @@ static const int  ROM_SIZE    = 0x10C00;
 // 0 = On. Holding that byte at 0xFF turns off the attract sound entirely.
 struct GameCfg {
 	const char *name;
-	int  usb, speech, ay;
+	int  usb, speech, ay, disc;
 	uint8_t dsw1, dsw2;
 };
 static const GameCfg GAMES[6] = {
-	{ "elim2",    0, 0, 0, 0x45, 0x33 },
-	{ "elim4",    0, 0, 0, 0x45, 0x00 },
-	{ "spacfury", 0, 1, 0, 0x8D, 0x33 },
-	{ "zektor",   0, 1, 1, 0x8D, 0x33 },
-	{ "tacscan",  1, 0, 0, 0x8D, 0x33 },
-	{ "startrek", 1, 1, 0, 0x8D, 0x33 },
+	{ "elim2",    0, 0, 0, 1, 0x45, 0x33 },
+	{ "elim4",    0, 0, 0, 1, 0x45, 0x00 },
+	{ "spacfury", 0, 1, 0, 1, 0x8D, 0x33 },
+	{ "zektor",   0, 1, 1, 1, 0x8D, 0x33 },
+	{ "tacscan",  1, 0, 0, 0, 0x8D, 0x33 },
+	{ "startrek", 1, 1, 0, 0, 0x8D, 0x33 },
 };
 
 // ---------------------------------------------------------------------------
@@ -147,7 +148,7 @@ int main(int argc, char **argv) {
 
 	// ---- run -------------------------------------------------------------
 	long total = (long)(secs * CLK_HZ);
-	std::vector<int16_t> w_mix, w_ay, w_speech, w_usb, w_usb_mame;
+	std::vector<int16_t> w_mix, w_ay, w_speech, w_usb, w_usb_mame, w_disc;
 
 	// The board is idle in attract mode on some games, so drop a coin and hit
 	// start. Times are in seconds of emulated machine time.
@@ -173,7 +174,8 @@ int main(int argc, char **argv) {
 	long frames = 0, ay_writes = 0, sp_data = 0, sp_ctrl = 0, usb_writes = 0;
 	long beam_on = 0;
 	long coin_pulses = 0;
-	bool p_coin = false, p_cff = false, p_irq = false;
+	bool p_coin = false, p_cff = false, p_irq = false, p_snd = false;
+	std::map<int,long> lov, hiv;
 	long irqs = 0;
 	bool p_done = false, p_ay = false, p_spd = false, p_spc = false, p_usb = false;
 	// speech board internals
@@ -235,6 +237,10 @@ int main(int argc, char **argv) {
 				printf("    t=%7.3f  speech CTRL <- %02X\n", t, dut->snd_data);
 		}
 		p_spc = dut->speech_ctrl_wr;
+		if (!dut->snd_wr && p_snd) {
+			if (dut->snd_sel & 1) hiv[dut->snd_data]++; else lov[dut->snd_data]++;
+		}
+		p_snd = dut->snd_wr;
 		if (dut->usb_data_wr && !p_usb)      usb_writes++;
 		p_usb = dut->usb_data_wr;
 
@@ -304,8 +310,9 @@ int main(int argc, char **argv) {
 			int16_t ay = (int16_t)dut->audio_ay;         // signed, DC-blocked
 			int16_t sp = (int16_t)dut->audio_speech;
 			int16_t ub = (int16_t)dut->audio_usb;
+			int16_t dc = (int16_t)dut->audio_discrete;
 			// the same mix Arcade-SegaG80V.sv sends to AUDIO_L/R
-			int mix = ay + sp + ub;
+			int mix = ay + sp + ub + dc;
 			if (mix >  32767) mix =  32767;
 			if (mix < -32768) mix = -32768;
 
@@ -314,6 +321,7 @@ int main(int argc, char **argv) {
 			w_speech.push_back(sp);
 			w_usb.push_back(ub);
 			w_usb_mame.push_back(usb_last_mame);
+			w_disc.push_back(dc);
 		}
 	}
 
@@ -325,11 +333,19 @@ int main(int argc, char **argv) {
 		{ "speech",   &w_speech,   G.speech != 0 },
 		{ "usb",      &w_usb,      G.usb != 0 },
 		{ "usb_mame", &w_usb_mame, G.usb != 0 },
+		{ "discrete", &w_disc,     G.disc != 0 },
 	};
 
 	printf("  %ld samples at %d Hz (%.1f s)\n", (long)w_mix.size(), SAMPLE_HZ,
 	       (double)w_mix.size() / SAMPLE_HZ);
 	printf("  machine: %ld frames drawn, %ld beam-on samples\n", frames, beam_on);
+	{
+		printf("  $3E (LO) values: ");
+		for (auto &k : lov) printf("%02X x%ld  ", k.first, k.second);
+		printf("\n  $3F (HI) values: ");
+		for (auto &k : hiv) printf("%02X x%ld  ", k.first, k.second);
+		printf("\n");
+	}
 	printf("  coin counter pulses: %ld, IRQ assertions %ld\n", coin_pulses, irqs);
 	printf("  writes:  AY %ld, speech data %ld ctrl %ld, USB %ld\n",
 	       ay_writes, sp_data, sp_ctrl, usb_writes);

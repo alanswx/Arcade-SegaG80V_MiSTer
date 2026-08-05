@@ -29,6 +29,7 @@ module audio_wrap #(
 	output wire signed [15:0] audio_ay,
 	output wire signed [15:0] audio_speech,
 	output wire signed [15:0] audio_usb,
+	output wire signed [15:0] audio_discrete,
 
 	// liveness
 	output wire        frame_done,
@@ -38,6 +39,8 @@ module audio_wrap #(
 	output wire        speech_data_wr,
 	output wire        speech_ctrl_wr,
 	output wire        usb_data_wr,
+	output wire        snd_wr,
+	output wire  [1:0] snd_sel,
 	output wire  [7:0] snd_data,
 
 	// Universal Sound Board taps, for the MAME-model comparison
@@ -87,6 +90,7 @@ module audio_wrap #(
 	           .SPEECH_C10_TENTH(SPEECH_C10_TENTH)) machine (
 		.clk_vec(clk), .reset(reset), .pause(1'b0),
 		.cfg_chip(cfg_chip), .cfg_usb(cfg_usb), .cfg_speech(cfg_speech),
+		.cfg_game(game),
 		.cfg_fc(cfg_fc),
 		.rom_wr(rom_wr), .rom_addr(rom_addr), .rom_data(rom_data),
 		.in_d7d6(in_d7d6), .in_d5d4(in_d5d4),
@@ -97,10 +101,11 @@ module audio_wrap #(
 		.vec_x(), .vec_y(), .vec_colour(),
 		.vec_beam(vec_beam), .vec_valid(vec_valid),
 		.drawing(), .frame_done(frame_done), .vec_tick(),
-		.snd_wr(), .snd_sel(), .ay_wr(ay_wr), .ay_port(),
+		.snd_wr(snd_wr), .snd_sel(snd_sel), .ay_wr(ay_wr), .ay_port(),
 		.speech_data_wr(speech_data_wr), .speech_ctrl_wr(speech_ctrl_wr),
 		.usb_data_wr(usb_data_wr), .snd_data(snd_data),
 		.audio_ay(audio_ay), .audio_speech(audio_speech), .audio_usb(audio_usb),
+		.audio_discrete(audio_discrete),
 		.dbg_usb_tick(dbg_usb_tick), .dbg_usb_noise(dbg_usb_noise),
 		.dbg_usb_tmr(dbg_usb_tmr), .dbg_usb_cfg(dbg_usb_cfg),
 		.dbg_usb_env(dbg_usb_env),

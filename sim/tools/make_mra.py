@@ -46,6 +46,92 @@ GAMES = {
 PROG_END = 0xC000
 IMAGE_END = 0xC400
 
+COIN_IDS = ('4 Coins/1 Credit,3 Coins/1 Credit,2 Coins/1 Credit,'
+            '1 Coin/1 Credit,1 Coin/2 Credits,1 Coin/3 Credits,'
+            '1 Coin/4 Credits,1 Coin/5 Credits,1 Coin/6 Credits,'
+            '2 Coins/1 Credit 5/3 6/4,2 Coins/1 Credit 4/3,'
+            '1 Coin/1 Credit 5/6,1 Coin/1 Credit 4/5,'
+            '1 Coin/1 Credit 2/3,1 Coin/2 Credits 5/11,'
+            '1 Coin/2 Credits 4/9')
+
+
+def switches_xml(meta):
+    """MAME's two physical DIP banks, delivered to ioctl index 254."""
+    game = meta['id']
+    if game in (0, 1):
+        sw1, sw2 = 0x45, (0x00 if game == 1 else 0x33)
+    else:
+        sw1, sw2 = 0x8D, 0x33
+
+    dips = ['        <dip bits="0" ids="Cocktail,Upright" name="Cabinet"/>']
+    if game >= 2:
+        dips.append('        <dip bits="1" ids="On,Off" name="Demo Sounds"/>')
+
+    if game in (0, 1):
+        dips += [
+            '        <dip bits="2,3" values="1,2,3" ids="3,4,5" name="Lives"/>',
+            '        <dip bits="4,5" ids="Easy,Medium,Hard,Hardest" name="Difficulty"/>',
+            '        <dip bits="6,7" ids="30000,20000,10000,None" name="Bonus Life"/>',
+        ]
+    elif game == 2:
+        dips += [
+            '        <dip bits="2,3" ids="2,3,4,5" name="Lives"/>',
+            '        <dip bits="4,5" ids="Easy,Medium,Hard,Hardest" name="Difficulty"/>',
+            '        <dip bits="6,7" ids="10000,20000,30000,40000" name="Bonus Life"/>',
+        ]
+    elif game == 3:
+        dips += [
+            '        <dip bits="2,3" ids="2,3,4,5" name="Lives"/>',
+            '        <dip bits="4,5" ids="Easy,Medium,Hard,Hardest" name="Difficulty"/>',
+            '        <dip bits="6,7" ids="None,30000,20000,10000" name="Bonus Life"/>',
+        ]
+    elif game == 4:
+        dips += [
+            '        <dip bits="2,3" ids="2,4,6,8" name="Ships"/>',
+            '        <dip bits="4,5" ids="Easy,Normal,Hard,Very Hard" name="Difficulty"/>',
+            '        <dip bits="6,7" ids="None,30000,20000,10000" name="Bonus Life"/>',
+        ]
+    else:
+        dips += [
+            '        <dip bits="2,3" ids="1,2,3,4" name="Photon Torpedoes"/>',
+            '        <dip bits="4,5" ids="Easy,Medium,Hard,Tournament" name="Difficulty"/>',
+            '        <dip bits="6,7" ids="10000,20000,30000,40000" name="Bonus Life"/>',
+        ]
+
+    if game == 1:
+        dips.append('        <dip bits="13,14,15" ids="1 Coin/1 Credit,2 Coins/1 Credit,3 Coins/1 Credit,4 Coins/1 Credit,5 Coins/1 Credit,6 Coins/1 Credit,7 Coins/1 Credit,8 Coins/1 Credit" name="Coinage"/>')
+    else:
+        dips += [
+            f'        <dip bits="8,9,10,11" ids="{COIN_IDS}" name="Coin A"/>',
+            f'        <dip bits="12,13,14,15" ids="{COIN_IDS}" name="Coin B"/>',
+        ]
+    return (f'    <switches default="{sw1:02X},{sw2:02X}">\n' +
+            '\n'.join(dips) + '\n    </switches>')
+
+
+def buttons_xml(meta):
+    if meta['id'] == 5:
+        names = 'Fire,Fire 2,Fire 3,Fire 4,Start 1,Start 2,Coin,Pause'
+        default = 'A,B,X,Y,Start,Select,R,L'
+    else:
+        # Keep the unused fire-3/fire-4 core slots explicit. MiSTer advances
+        # the output slot for '-' without consuming a default-map entry.
+        names = 'Fire,Thrust,-,-,Start 1,Start 2,Coin,Pause'
+        default = 'A,B,Start,Select,R,L'
+    return f'    <buttons names="{names}" default="{default}"/>'
+
+
+def controls_xml(meta):
+    players = 4 if meta['id'] == 1 else 2
+    buttons = 4 if meta['id'] == 5 else 2
+    if meta['id'] in (3, 4, 5):
+        control = ('    <joystick></joystick>\n'
+                   '    <special_controls>spinner</special_controls>')
+    else:
+        control = '    <joystick>2-way horizontal</joystick>'
+    return (f'    <players>{players}</players>\n' + control + '\n' +
+            f'    <num_buttons>{buttons}</num_buttons>')
+
 
 def parse_sets(src_path):
     src = open(src_path).read()
@@ -127,6 +213,7 @@ def emit(setname, regions, meta):
     <manufacturer>{meta['manuf']}</manufacturer>
     <category>Shooter</category>
 {f'    <parent>{parent}</parent>' + chr(10) if parent else ''}\
+{controls_xml(meta)}
     <!-- index 0: 48K program ROM at $0000, sin/cos PROM at $C000 -->
     <rom index="0" zip="{setname}.zip{('|' + parent + '.zip') if parent else ''}" md5="none">
 {rom_parts}
@@ -137,13 +224,10 @@ def emit(setname, regions, meta):
         <part>{meta['id']:02X}</part>
     </rom>
 
-    <!-- index 254: DIP switches. byte 0 = SW1 (read at $F8-$FB bits 3:2),
-         byte 1 = SW2 (coinage, bits 1:0). Both are active low. -->
-    <rom index="254" zip="" type="nonmerged" md5="none">
-        <part>FF 33</part>
-    </rom>
+    <!-- Two physical DIP banks, delivered to ioctl index 254 by MiSTer. -->
+{switches_xml(meta)}
 
-    <buttons names="Fire,Thrust,Start 1,Start 2,Coin,Pause" default="A,B,Start,Select,R,L"/>
+{buttons_xml(meta)}
 </misterromdescription>
 ''', None
 

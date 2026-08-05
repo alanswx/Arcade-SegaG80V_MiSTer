@@ -59,7 +59,7 @@ Full hardware notes: [`docs/01-hardware-reference.md`](docs/01-hardware-referenc
 | Spinner (Zektor, Tac/Scan, Star Trek) | done, untested on hardware |
 | Audio: Zektor AY-3-8912 | done |
 | Audio: speech board, USB, discrete boards | see [docs/03-audio-plan.md](docs/03-audio-plan.md) |
-| DIP switches as MRA `<switches>` | not started |
+| DIP switches as MRA `<switches>` | done |
 | **Runs on real hardware** | **yes** |
 
 No present gate: derpyder's Tempest core needs one because Tempest redraws its

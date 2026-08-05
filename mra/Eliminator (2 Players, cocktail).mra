@@ -8,6 +8,9 @@
     <manufacturer>Gremlin</manufacturer>
     <category>Shooter</category>
     <parent>elim2</parent>
+    <players>2</players>
+    <joystick>2-way horizontal</joystick>
+    <num_buttons>2</num_buttons>
     <!-- index 0: 48K program ROM at $0000, sin/cos PROM at $C000 -->
     <rom index="0" zip="elim2c.zip|elim2.zip" md5="none">
         <part name="969t.cpu-u25" crc="896a615c"/>
@@ -36,11 +39,15 @@
         <part>00</part>
     </rom>
 
-    <!-- index 254: DIP switches. byte 0 = SW1 (read at $F8-$FB bits 3:2),
-         byte 1 = SW2 (coinage, bits 1:0). Both are active low. -->
-    <rom index="254" zip="" type="nonmerged" md5="none">
-        <part>FF 33</part>
-    </rom>
+    <!-- Two physical DIP banks, delivered to ioctl index 254 by MiSTer. -->
+    <switches default="45,33">
+        <dip bits="0" ids="Cocktail,Upright" name="Cabinet"/>
+        <dip bits="2,3" values="1,2,3" ids="3,4,5" name="Lives"/>
+        <dip bits="4,5" ids="Easy,Medium,Hard,Hardest" name="Difficulty"/>
+        <dip bits="6,7" ids="30000,20000,10000,None" name="Bonus Life"/>
+        <dip bits="8,9,10,11" ids="4 Coins/1 Credit,3 Coins/1 Credit,2 Coins/1 Credit,1 Coin/1 Credit,1 Coin/2 Credits,1 Coin/3 Credits,1 Coin/4 Credits,1 Coin/5 Credits,1 Coin/6 Credits,2 Coins/1 Credit 5/3 6/4,2 Coins/1 Credit 4/3,1 Coin/1 Credit 5/6,1 Coin/1 Credit 4/5,1 Coin/1 Credit 2/3,1 Coin/2 Credits 5/11,1 Coin/2 Credits 4/9" name="Coin A"/>
+        <dip bits="12,13,14,15" ids="4 Coins/1 Credit,3 Coins/1 Credit,2 Coins/1 Credit,1 Coin/1 Credit,1 Coin/2 Credits,1 Coin/3 Credits,1 Coin/4 Credits,1 Coin/5 Credits,1 Coin/6 Credits,2 Coins/1 Credit 5/3 6/4,2 Coins/1 Credit 4/3,1 Coin/1 Credit 5/6,1 Coin/1 Credit 4/5,1 Coin/1 Credit 2/3,1 Coin/2 Credits 5/11,1 Coin/2 Credits 4/9" name="Coin B"/>
+    </switches>
 
-    <buttons names="Fire,Thrust,Start 1,Start 2,Coin,Pause" default="A,B,Start,Select,R,L"/>
+    <buttons names="Fire,Thrust,-,-,Start 1,Start 2,Coin,Pause" default="A,B,Start,Select,R,L"/>
 </misterromdescription>

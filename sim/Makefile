@@ -7,6 +7,7 @@
 
 RTL      := ../rtl
 VFLAGS   := -Wall -Wno-fatal --cc --exe --build -j 0 -O2 \
+            -DTV80_REFRESH \
             -CFLAGS "-O2 -std=c++17"
 
 .PHONY: all security ports color6 geometry sp0250 usbtimer usbnoise usbfilter xy xy1 cpu boot audio clean
@@ -202,9 +203,9 @@ boot: obj_boot/Vboot_wrap
 	@./obj_boot/Vboot_wrap roms/elim2.rom    4 150
 	@./obj_boot/Vboot_wrap roms/elim4.rom    5 150
 	@./obj_boot/Vboot_wrap roms/spacfury.rom 3 150
-	@./obj_boot/Vboot_wrap roms/zektor.rom   6 150
-	@./obj_boot/Vboot_wrap roms/tacscan.rom  5 150 1
-	@./obj_boot/Vboot_wrap roms/startrek.rom 3 150 1
+	@./obj_boot/Vboot_wrap roms/zektor.rom   6 150 0 1
+	@./obj_boot/Vboot_wrap roms/tacscan.rom  5 150 1 1
+	@./obj_boot/Vboot_wrap roms/startrek.rom 3 150 1 1
 
 cpu: obj_cpu/Vsegag80v_cpu obj_cpu0/Vsegag80v_cpu obj_cpu1/Vsegag80v_cpu
 	@./obj_cpu/Vsegag80v_cpu

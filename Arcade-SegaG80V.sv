@@ -93,6 +93,7 @@ module emu
 		"P3-;",
 		"P3-,buymeacoffee.com/videodr0me;",
 		"-;",
+		"DIP;",
 		"R[0],Reset;",
 		// bits 4..12: fire1..fire4, start1, start2, coin, pause, service
 		"J1,Fire,Fire 2,Fire 3,Fire 4,Start 1,Start 2,Coin,Pause,Service;",

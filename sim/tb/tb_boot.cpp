@@ -35,12 +35,13 @@ static const int ROM_NEEDED = 0xC400;
 
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
-	if (argc < 3) { printf("usage: tb_boot <rom> <chip-id> [frames] [usb]\n"); return 2; }
+	if (argc < 3) { printf("usage: tb_boot <rom> <chip-id> [frames] [usb] [fc-mode]\n"); return 2; }
 
 	const char *rompath = argv[1];
 	int chip   = atoi(argv[2]);
 	int frames = (argc > 3) ? atoi(argv[3]) : 3;
 	int usb    = (argc > 4) ? atoi(argv[4]) : 0;
+	int fc     = (argc > 5) ? atoi(argv[5]) : 0;
 
 	static uint8_t rom[ROM_SIZE];
 	FILE *f = fopen(rompath, "rb");
@@ -69,11 +70,11 @@ int main(int argc, char **argv) {
 	auto *dut = new Vboot_wrap;
 
 	dut->clk = 0; dut->reset = 1;
-	dut->cfg_chip = chip; dut->cfg_usb = usb; dut->cfg_fc = 0;
+	dut->cfg_chip = chip; dut->cfg_usb = usb; dut->cfg_fc = fc;
 	// every switch input is active low, so idle is all ones
 	dut->in_d7d6 = 0xFF; dut->in_d5d4 = 0xFF;
 	dut->in_d3d2 = 0xFF; dut->in_d1d0 = 0x33;   // DIPs: 1 coin / 1 credit
-	dut->in_fc = 0xFF; dut->in_coins = 0xFF;
+	dut->in_fc = fc == 1 ? 0x00 : 0xFF; dut->in_coins = 0xFF;
 	dut->coin_a = 1; dut->coin_b = 1; dut->service = 1;
 	dut->prom_wr = 0; dut->prom_addr = 0; dut->prom_data = 0;
 	dut->rom_data = 0;
@@ -117,6 +118,7 @@ int main(int argc, char **argv) {
 	bool in_io_rd = false;
 	int  io_logged = 0;
 	std::map<int,long> f8vals;
+	bool fc_start_seen = false, credit_consumed = false;
 	bool f8_was_low = false;
 	uint16_t last_pc_seen = 0xFFFF;
 	bool in_wram_wr = false;
@@ -137,7 +139,8 @@ int main(int argc, char **argv) {
 				cn = (frames_done >= coinat && frames_done < coinat + cfor);
 			dut->coin_a = cn ? 0 : 1;
 			bool st = !getenv("NOSTART") && (frames_done >= coinat + 8) && ((frames_done / 4) & 1);
-			dut->in_d5d4 = st ? (uint8_t)(0xFF & ~0x02) : 0xFF;
+			if (fc == 1) dut->in_fc = st ? 0x01 : 0x00;
+			else         dut->in_d5d4 = st ? (uint8_t)(0xFF & ~0x02) : 0xFF;
 		}
 		tick();
 		clocks++;
@@ -160,6 +163,8 @@ int main(int argc, char **argv) {
 		// where do the coin/credit counter writes actually land?
 		if (coinat >= 0 && dut->wram_wr_o && !in_wram_wr) {
 			uint16_t raw = dut->wram_raw_o, scr = dut->wram_scr_o;
+			if (frames_done >= coinat + 8 && raw == 0xC80B && dut->wram_data_o == 0)
+				credit_consumed = true;
 			if (raw == 0xC80B && wram_logged < 40) {
 				printf("    frame %3d  write %04X -> lands at %04X  data %02X%s\n",
 				       frames_done, raw, scr, dut->wram_data_o,
@@ -196,6 +201,9 @@ int main(int argc, char **argv) {
 			       frames_done, dut->io_port_o, dut->io_dout_o);
 			io_logged++;
 		}
+		if (dut->io_rd_o && !in_io_rd && dut->io_port_o == 0xFC &&
+		    (dut->io_dout_o & 1))
+			fc_start_seen = true;
 		in_io_rd = dut->io_rd_o;
 
 		rom_pages.insert((uint16_t)(dut->rom_addr >> 8));
@@ -296,6 +304,11 @@ int main(int argc, char **argv) {
 	check(frames_done >= frames,    "vector generator completed the requested frames");
 	check(beam_on > 1000,           "vector generator drew a substantial picture");
 	check(colours.size() >= 2,      "more than one colour used");
+	if (coinat >= 0 && !getenv("NOSTART")) {
+		if (fc == 1)
+			check(fc_start_seen, "spinner-game Start reached the CPU through $FC");
+		check(credit_consumed, "Start consumed the inserted credit");
+	}
 
 	// For the two USB games this is what stops the board being dead weight:
 	// the 8035 only makes noise if the Z80 uploaded its program through the

@@ -249,7 +249,7 @@ module emu
 		.rgb_out(paused_rgb)
 	);
 
-	wire [10:0] audio_ay;
+	wire signed [15:0] audio_ay;
 	wire signed [15:0] audio_speech;
 	wire signed [15:0] audio_usb;
 	wire       vec_tick;
@@ -380,8 +380,19 @@ module emu
 	// Trek the USB already arrives inside audio_speech via the CD4053, so
 	// audio_usb is zero there and this never double-counts it. The discrete
 	// sound boards are the remaining audio work, so there is headroom left.
+	// Each board is scaled so its own peaks land in roughly the same place,
+	// then summed with headroom. On Star Trek the USB already arrives inside
+	// audio_speech via the CD4053, so audio_usb is zero there and this never
+	// double-counts it. The discrete sound boards are still to come.
+	// Boards are summed at full weight and saturated. Each one is scaled so
+	// its own peaks land near -10 dBFS, and no game runs more than two at
+	// once, so this keeps a sensible output level without clipping.
+	wire signed [17:0] audio_sum =
+		{{2{audio_ay[15]}}, audio_ay} + {{2{audio_speech[15]}}, audio_speech}
+		+ {{2{audio_usb[15]}}, audio_usb};
 	wire signed [15:0] audio_mix =
-		$signed({3'd0, audio_ay, 2'd0}) + (audio_speech >>> 1) + (audio_usb >>> 1);
+		(audio_sum >  18'sd32767) ?  16'sh7FFF :
+		(audio_sum < -18'sd32768) ? -16'sh8000 : audio_sum[15:0];
 	assign AUDIO_L = audio_mix;
 	assign AUDIO_R = audio_mix;
 	assign AUDIO_S = 1'b1;

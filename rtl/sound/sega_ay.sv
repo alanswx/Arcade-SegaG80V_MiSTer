@@ -31,7 +31,7 @@ module sega_ay #(
 	input  wire        addr_sel,  // 0 = $3C (address latch), 1 = $3D (data)
 	input  wire  [7:0] din,
 
-	output wire [10:0] audio      // unsigned sum of the three channels
+	output wire signed [15:0] audio   // DC-blocked, signed
 );
 
 	// AY clock enable, fractional off clk
@@ -97,7 +97,23 @@ module sega_ay #(
 	);
 
 	// passive resistor sum, matching AY8910_RESISTOR_OUTPUT with equal loads
-	assign audio = {3'd0, ch_a} + {3'd0, ch_b} + {3'd0, ch_c};
+	// jt49 presents each channel as an unsigned 0..255 envelope, so the sum
+	// is unipolar 0..765 and carries a DC term that grows with volume. The
+	// board couples its output through a capacitor, so do the same here —
+	// feeding the raw unsigned value to the mixer offsets the whole output and
+	// thumps whenever the volume changes.
+	wire [10:0] raw = {3'd0, ch_a} + {3'd0, ch_b} + {3'd0, ch_c};
+	wire signed [20:0] x = $signed({5'd0, raw, 5'd0});     // 0..24480
+
+	logic signed [20:0] dc;
+	always_ff @(posedge clk) begin
+		if (reset)       dc <= '0;
+		else if (ce_ay)  dc <= dc + ((x - dc) >>> 15);      // ~10 Hz
+	end
+
+	wire signed [20:0] ac = x - dc;
+	assign audio = (ac >  21'sd32767) ?  16'sh7FFF :
+	               (ac < -21'sd32768) ? -16'sh8000 : ac[15:0];
 
 endmodule
 

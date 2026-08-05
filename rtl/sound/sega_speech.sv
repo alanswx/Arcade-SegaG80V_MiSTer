@@ -29,7 +29,11 @@
 
 module sega_speech #(
 	parameter int CLK_HZ  = 12_096_000,   // clk domain
-	parameter int CPU_HZ  =  3_120_000    // speech board master clock
+	parameter int CPU_HZ  =  3_120_000,   // speech board master clock
+	// The board's output filter. MAME does not apply it (segaspeech.cpp has
+	// ENABLE_NETLIST_FILTERING 0), so set FILTER=0 to match MAME exactly.
+	parameter bit FILTER    = 1'b1,
+	parameter bit C10_TENTH = 1'b0
 ) (
 	input  wire        clk,
 	input  wire        reset,
@@ -281,7 +285,21 @@ module sega_speech #(
 	// Output mix. Control bit 3 gates the speech, bit 5 gates the off-board
 	// channel (the USB on Star Trek), both through a CD4053.
 	// ------------------------------------------------------------------
-	wire signed [15:0] speech_out = control[3] ? {sp_dac, 8'd0} : 16'sd0;
+	// The board filters the SP0250 *before* the CD4053, so the gate comes
+	// after. See speech_filter.sv — MAME leaves this filter out by default.
+	wire signed [15:0] sp_filtered;
+
+	speech_filter #(.C10_TENTH(C10_TENTH)) filt (
+		.clk   (clk),
+		.reset (reset),
+		.ce    (ce),
+		.dac   (sp_dac),
+		.audio (sp_filtered)
+	);
+
+	wire signed [15:0] speech_out = control[3]
+	                              ? (FILTER ? sp_filtered : {sp_dac, 8'd0})
+	                              : 16'sd0;
 	wire signed [15:0] aux_out    = control[5] ? usb_audio      : 16'sd0;
 
 	assign audio = speech_out + aux_out;

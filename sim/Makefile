@@ -73,7 +73,7 @@ usbfilter: obj_usbfilter/Vusb_filter
 obj_audio/Vaudio_wrap: $(RTL)/segag80v.sv $(RTL)/segag80v_cpu.sv \
                      $(RTL)/sega_ports.sv $(RTL)/sega_security.sv \
                      $(RTL)/xy/sega_xy.sv $(RTL)/xy/sega_xy_top.sv \
-                     $(RTL)/sound/sega_speech.sv $(RTL)/sound/sp0250.sv \
+                     $(RTL)/sound/sega_speech.sv $(RTL)/sound/speech_filter.sv $(RTL)/sound/sp0250.sv \
                      $(RTL)/sound/sega_ay.sv $(RTL)/sound/sega_usb.sv \
                      $(RTL)/sound/usb_timer.sv $(RTL)/sound/usb_noise.sv \
                      $(RTL)/sound/usb_filter.sv $(RTL)/sega_inputs.sv \
@@ -87,7 +87,7 @@ obj_audio/Vaudio_wrap: $(RTL)/segag80v.sv $(RTL)/segag80v_cpu.sv \
 		$(RTL)/segag80v.sv $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 		$(RTL)/sega_security.sv $(RTL)/sega_game_pkg.sv $(RTL)/sega_inputs.sv \
 		$(RTL)/xy/sega_xy.sv $(RTL)/xy/sega_xy_top.sv \
-		$(RTL)/sound/sega_speech.sv $(RTL)/sound/sp0250.sv \
+		$(RTL)/sound/sega_speech.sv $(RTL)/sound/speech_filter.sv $(RTL)/sound/sp0250.sv \
 		$(RTL)/sound/sega_ay.sv $(RTL)/sound/sega_usb.sv \
 		$(RTL)/sound/usb_timer.sv $(RTL)/sound/usb_noise.sv \
 		$(RTL)/sound/usb_filter.sv \

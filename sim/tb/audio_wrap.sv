@@ -8,7 +8,10 @@
 
 `default_nettype none
 
-module audio_wrap (
+module audio_wrap #(
+	parameter bit SPEECH_FILTER = 1'b1,
+	parameter bit SPEECH_C10_TENTH = 1'b0
+) (
 	input  wire        clk,
 	input  wire        reset,
 
@@ -23,7 +26,7 @@ module audio_wrap (
 	input  wire  [7:0] rom_data,
 
 	// audio
-	output wire [10:0] audio_ay,
+	output wire signed [15:0] audio_ay,
 	output wire signed [15:0] audio_speech,
 	output wire signed [15:0] audio_usb,
 
@@ -80,7 +83,8 @@ module audio_wrap (
 		.coin_a(coin_a), .coin_b(coin_b), .service(service)
 	);
 
-	segag80v machine (
+	segag80v #(.SPEECH_FILTER(SPEECH_FILTER),
+	           .SPEECH_C10_TENTH(SPEECH_C10_TENTH)) machine (
 		.clk_vec(clk), .reset(reset), .pause(1'b0),
 		.cfg_chip(cfg_chip), .cfg_usb(cfg_usb), .cfg_speech(cfg_speech),
 		.cfg_fc(cfg_fc),

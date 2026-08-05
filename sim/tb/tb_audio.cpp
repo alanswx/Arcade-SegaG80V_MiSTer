@@ -301,16 +301,16 @@ int main(int argc, char **argv) {
 
 		if (++sub == CLKS_PER_SAMPLE) {
 			sub = 0;
-			int ay     = (int)dut->audio_ay;             // 11-bit unsigned
+			int16_t ay = (int16_t)dut->audio_ay;         // signed, DC-blocked
 			int16_t sp = (int16_t)dut->audio_speech;
 			int16_t ub = (int16_t)dut->audio_usb;
 			// the same mix Arcade-SegaG80V.sv sends to AUDIO_L/R
-			int mix = (ay << 2) + (sp >> 1) + (ub >> 1);
+			int mix = ay + sp + ub;
 			if (mix >  32767) mix =  32767;
 			if (mix < -32768) mix = -32768;
 
 			w_mix.push_back((int16_t)mix);
-			w_ay.push_back((int16_t)(ay << 2));
+			w_ay.push_back(ay);
 			w_speech.push_back(sp);
 			w_usb.push_back(ub);
 			w_usb_mame.push_back(usb_last_mame);

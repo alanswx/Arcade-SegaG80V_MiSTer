@@ -27,7 +27,9 @@ module segag80v #(
 	parameter int PHASE_CLKS  = 16,
 	parameter int WAIT_STATES = 2,
 	// clk_vec is 12.096 MHz on the MiSTer PLL, not a round 12
-	parameter int CLK_HZ      = 12_096_000
+	parameter int CLK_HZ      = 12_096_000,
+	parameter bit SPEECH_FILTER = 1'b1,
+	parameter bit SPEECH_C10_TENTH = 1'b0
 ) (
 	input  wire        clk_vec,
 	input  wire        reset,
@@ -78,7 +80,7 @@ module segag80v #(
 	output wire  [7:0] snd_data,
 
 	// ---- audio ----
-	output wire [10:0] audio_ay,     // Zektor AY-3-8912
+	output wire signed [15:0] audio_ay,   // Zektor AY-3-8912
 	output wire signed [15:0] audio_speech,
 	output wire signed [15:0] audio_usb,
 
@@ -240,7 +242,8 @@ module segag80v #(
 	// ------------------------------------------------------------------
 	// Speech board (Space Fury, Zektor, Star Trek)
 	// ------------------------------------------------------------------
-	sega_speech #(.CLK_HZ(CLK_HZ)) speech (
+	sega_speech #(.CLK_HZ(CLK_HZ), .FILTER(SPEECH_FILTER),
+	              .C10_TENTH(SPEECH_C10_TENTH)) speech (
 		.clk       (clk_vec),
 		.reset     (reset),
 		.data_wr   (speech_data_stb),

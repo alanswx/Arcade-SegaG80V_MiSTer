@@ -188,9 +188,15 @@ Clock enables, all from the 6 MHz master: `2MHZ = /3`, `PCS = 2MHZ/2`,
 Timer clocking: channels 0 and 1 clock at PCS with the gate held high; channel
 2 clocks at 2 MHz with its gate toggling at GOS/2.
 
-**MM5837 noise** — exact, a 17-bit LFSR:
-`shift = (shift << 1) | (((shift >> 13) ^ (shift >> 16)) & 1)`, output is
-bit 16. Worth unit-testing alongside the timer.
+**MM5837 noise — done and verified.** `rtl/sound/usb_noise.sv`, 17-bit LFSR
+with taps at 13 and 16, checked against MAME by `make usbnoise` over 400,000
+steps.
+
+The seed matters: **all-zero is a lock-up state** for this polynomial. MAME
+seeds `0x15555` in `device_start` and so does the RTL. Both were initially
+stuck at zero and the comparison passed with 0 failures — the coverage check
+(output should be high about half the time) is what caught it. Worth
+remembering that a stuck DUT matches a stuck model.
 
 **Analog chain** — this is where the fidelity question is. MAME runs its
 stream at **2 MHz** and applies seventeen one-pole filters per sample:

@@ -42,6 +42,13 @@ module boot_wrap #(
 	output wire        ce_vcl_o,
 	output wire        edgint_o,
 	output wire        drawing_o,
+	output wire        wram_wr_o,
+	output wire [15:0] wram_raw_o,
+	output wire [15:0] wram_scr_o,
+	output wire  [7:0] wram_data_o,
+	output wire  [7:0] io_dout_o,
+	output wire        io_rd_o,
+	output wire  [7:0] io_port_o,
 	output wire signed [15:0] usb_audio_o,
 	output wire        usb_wr_o,
 	output wire [11:0] usb_addr_o,
@@ -116,7 +123,11 @@ module boot_wrap #(
 		.coin_a(coin_a), .coin_b(coin_b), .service(service),
 		.snd_wr(), .snd_sel(), .ay_wr(),
 		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(usb_data_wr),
-		.usb_status(usb_status), .io_dout(), .coin_counter(),
+		.usb_status(usb_status), .io_dout(io_dout_o), .coin_counter(),
+		.dbg_wram_wr(wram_wr_o), .dbg_wram_addr_raw(wram_raw_o),
+		.dbg_wram_addr_scr(wram_scr_o), .dbg_wram_data(wram_data_o),
+		.dbg_io_rd(io_rd_o), .dbg_port(io_port_o),
+		.dbg_irq(), .dbg_coin_ff(), .dbg_int_ack(),
 		.dbg_op_addr(dbg_op_addr)
 	);
 

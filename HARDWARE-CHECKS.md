@@ -111,40 +111,52 @@ went 166 -> 299 and all three of Space Fury's power-on words are now consumed.
 
 This affects **both** sound boards — they are the only users of `i8035`.
 
-### 7b. Still silent: the games do not ask for speech
+### 7b. CORRECTION: coins work; the earlier entry here was wrong
 
-Fixing T0 did not by itself produce audio, because in a 25 s run Space Fury
-only ever sends its three power-on bytes (`3F`, `0F`, `0E`). Disassembling the
-handler shows that sequence is a **parameter-setting command** — it stores two
-nibbles into internal RAM at 0x3C/0x3E and returns to the dispatcher. It is not
-"speak". The game never sends a speak command because it never leaves attract.
+A previous version of this file said coins never credit and that no game could
+be started. **That was wrong, and the fault was in the test bench, not the
+core.** The bench held the coin low for 250 ms. Space Fury's coin routine
+counts down from 231 retries at ~0.67 ms each while waiting for the coin to be
+*released*, and rejects the coin if the loop runs out — so anything held longer
+than ~155 ms is discarded as a stuck coin. It also rejects anything shorter
+than ~21 ms as a bounce. 100 ms sits in the middle and works.
 
-### 7c. FOUND: coins never credit
+With a 100 ms coin the whole chain is confirmed: the flip-flop sets, the Z80
+IRQ fires, the ISR at 0x0069 reads `$F8`, the debounce at 0x0095 exits on
+release, `CALL 010A` pulses the coin meter through `OUT ($F9),A`, and the BCD
+credit counter at `$C80B` goes to 01. Eliminator, Zektor, Tac/Scan and Star
+Trek all respond to a coin.
 
-The attract screen renders correctly (`sim/tools/render.cpp` on a vector RAM
-snapshot shows the Space Fury title, ship, high scores and `CREDITS 00`), so
-the machine is healthy. But a coin does nothing:
+The security scrambler is also exonerated: main RAM writes were traced and
+`INC (HL)` at `$C80A` increments cleanly with nothing displaced, which is
+correct — MAME only scrambles writes issued by opcode `$32` (`LD (nn),A`).
 
-- the coin flip-flop in `segag80v_cpu.sv` **does** set, and the Z80 IRQ **does**
-  fire — both confirmed by tapping `dbg_coin_ff` / `dbg_irq`
-- yet `CREDITS` stays at 00, no `$F9` coin-counter write ever happens, and
-  START1 is ignored no matter how often it is pressed
-- holding the coin low for 250 frames (6+ seconds) produces a **byte-identical**
-  vector RAM snapshot to a run with no coin at all
+### 7c. Audio now works for two of the boards
 
-So the interrupt path works and the port-read path does not: the game takes the
-coin interrupt and then reads a coin bit that is not there. `in_d7d6_live` puts
-`coin_a` at bit 0 and `coin_b` at bit 4, which matches MAME's `D7D6` port and
-the `D7`/`D6` LS253 table in the driver comments — so the fault is more likely
-in how `sega_ports.sv` muxes those bits than in the assignment. Note that
-`make ports` passing does not clear this: the model it checks against was
-transcribed by the same hand as the RTL.
+With the t48 T0 fix and a correctly timed coin, `make audio` produces real
+sound from a running game:
 
-**This is bigger than audio — it means no game can be started on hardware.**
-Reproduce with `COINAT=100 COINFOR=250 DUMPVRAM=/tmp/v.bin ./obj_boot/Vboot_wrap
-roms/spacfury.rom 3 400 0`, then render and look at CREDITS.
+| Board | Game | Result |
+|---|---|---|
+| Universal Sound Board | Tac/Scan | 239 sound commands, peak -9.4 dBFS, 72.5% of samples non-zero |
+| Speech board | Star Trek | 8035 now covers 1293 of 2048 program addresses, SP0250 DAC active over 10.8 M samples, peak -14.9 dBFS |
 
-### 7d. Audio — KNOWN BROKEN, do not spend a build on it
+And the fixed-point analog chain tracks MAME's double-precision model on real
+game audio, not just synthetic stimulus:
+
+```
+RTL vs MAME analog chain, on real Tac/Scan game audio:
+  correlation 0.999586   rms ratio 0.9987
+```
+
+**Still open:** Space Fury and Zektor remain silent. Both take the coin but
+neither starts a game or asks for speech beyond the six power-on bytes, and
+both of their main sound boards are the *discrete* boards, which are not
+implemented. Space Fury's speech board is the odd one out — it should speak in
+attract, and it does not, while Star Trek's identical board does. That is the
+next thread.
+
+### 7d. Audio — what is still unheard on hardware
 
 **2026-08-04: neither sound board produces audio in the assembled machine.**
 Every component passes its bench (17/17, including bit-exact 8253, MM5837 and

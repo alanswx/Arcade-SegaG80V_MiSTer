@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <set>
+#include <map>
 #include <vector>
 
 #include "Vboot_wrap.h"
@@ -113,14 +114,29 @@ int main(int argc, char **argv) {
 	std::vector<uint16_t> trace;
 	uint16_t last_addr = 0xFFFF;
 
+	bool in_io_rd = false;
+	int  io_logged = 0;
+	std::map<int,long> f8vals;
+	bool f8_was_low = false;
+	uint16_t last_pc_seen = 0xFFFF;
+	bool in_wram_wr = false;
+	int  wram_logged = 0;
+	std::set<uint16_t> f8pc;
 	bool prev_valid = false, prev_done = false, prev_edg = false;
 	const long MAX_CLOCKS = 12000000L * frames / 40 + 4000000L;
 
 	for (long c = 0; c < MAX_CLOCKS && frames_done < frames; c++) {
 		if (coinat >= 0) {
 			// coin held for ~4 frames, then START1 pressed repeatedly
-			dut->coin_a = (frames_done >= coinat && frames_done < coinat + (getenv("COINFOR") ? atoi(getenv("COINFOR")) : 4)) ? 0 : 1;
-			bool st = (frames_done >= coinat + 8) && ((frames_done / 4) & 1);
+			int cfor = getenv("COINFOR") ? atoi(getenv("COINFOR")) : 4;
+			int cev  = getenv("COINEVERY") ? atoi(getenv("COINEVERY")) : 0;
+			bool cn;
+			if (cev > 0 && frames_done >= coinat)
+				cn = (((frames_done - coinat) % cev) < cfor);
+			else
+				cn = (frames_done >= coinat && frames_done < coinat + cfor);
+			dut->coin_a = cn ? 0 : 1;
+			bool st = !getenv("NOSTART") && (frames_done >= coinat + 8) && ((frames_done / 4) & 1);
 			dut->in_d5d4 = st ? (uint8_t)(0xFF & ~0x02) : 0xFF;
 		}
 		tick();
@@ -137,6 +153,50 @@ int main(int argc, char **argv) {
 			}
 			in_usb_wr = dut->usb_wr_o;
 		}
+
+		// log I/O reads of the input matrix around the coin, once per cycle
+		if (dut->io_rd_o && !in_io_rd && dut->io_port_o == 0xF8)
+			f8vals[dut->io_dout_o]++;
+		// where do the coin/credit counter writes actually land?
+		if (coinat >= 0 && dut->wram_wr_o && !in_wram_wr) {
+			uint16_t raw = dut->wram_raw_o, scr = dut->wram_scr_o;
+			if (raw == 0xC80B && wram_logged < 40) {
+				printf("    frame %3d  write %04X -> lands at %04X  data %02X%s\n",
+				       frames_done, raw, scr, dut->wram_data_o,
+				       raw == scr ? "" : "   <<< MOVED");
+				wram_logged++;
+			}
+		}
+		in_wram_wr = dut->wram_wr_o;
+
+		// which branch does the coin debounce take?
+		if (coinat >= 0) {
+			uint16_t pc = dut->dbg_op_addr;
+			if (pc != last_pc_seen) {
+				if (pc == 0x00A4) printf("    frame %3d  debounce exited -> 00A4\n", frames_done);
+				if (pc == 0x00A9) printf("    frame %3d  CREDIT  (CALL 010A)\n", frames_done);
+				if (pc == 0x00DA) printf("    frame %3d  REJECTED (JR NC 00DA)\n", frames_done);
+				last_pc_seen = pc;
+			}
+		}
+		// where is the Z80 when it reads the coin, and does it act on it?
+		if (coinat >= 0 && dut->io_rd_o && !in_io_rd && dut->io_port_o == 0xF8) {
+			bool low = !(dut->io_dout_o & 0x80);
+			if (low != f8_was_low) {
+				printf("    frame %3d  $F8 bit7 %s at PC=%04X\n",
+				       frames_done, low ? "LOW (coin)" : "high", dut->dbg_op_addr);
+				f8_was_low = low;
+			}
+			if (low && f8pc.size() < 12) f8pc.insert(dut->dbg_op_addr);
+		}
+		if (coinat >= 0 && dut->io_rd_o && !in_io_rd &&
+		    dut->io_port_o >= 0xF8 && frames_done >= coinat - 1 &&
+		    frames_done <= coinat + 20 && io_logged < 400) {
+			printf("    frame %3d  IN $%02X -> %02X\n",
+			       frames_done, dut->io_port_o, dut->io_dout_o);
+			io_logged++;
+		}
+		in_io_rd = dut->io_rd_o;
 
 		rom_pages.insert((uint16_t)(dut->rom_addr >> 8));
 		if (trace_n && dut->rom_addr != last_addr) {
@@ -212,6 +272,11 @@ int main(int argc, char **argv) {
 	printf("  vector RAM writes   %ld  (%zu distinct addresses)\n",
 	       vram_writes, vram_touched.size());
 	printf("  beam samples        %ld  (%ld with beam on)\n", samples, beam_on);
+	printf("  PCs reading $F8 while coin low:");
+	for (auto a : f8pc) printf(" %04X", a);
+	printf("\n  $F8 read values seen: ");
+	for (auto &kv : f8vals) printf("%02X x%ld  ", kv.first, kv.second);
+	printf("\n");
 	printf("  distinct colours    %zu\n", colours.size());
 	if (usb)
 		printf("  USB board           %ld program writes (%zu addresses), "

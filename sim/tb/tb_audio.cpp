@@ -153,7 +153,13 @@ int main(int argc, char **argv) {
 	// start. Times are in seconds of emulated machine time.
 	// Late enough that the game has finished its self-test and reached
 	// attract mode; dropping a coin during the test does nothing.
-	const double COIN_AT = 8.0, COIN_FOR = 0.25;
+	// The coin must be held long enough to pass debounce but released before
+	// the game's wait-for-release loop times out: Space Fury counts down from
+	// 231 tries at ~0.67 ms each and rejects the coin if fewer than 31 tries
+	// elapsed (too short) or the loop ran out at ~155 ms (stuck coin). 100 ms
+	// sits in the middle. Holding it 250 ms, as this bench first did, is
+	// rejected outright.
+	const double COIN_AT = 8.0, COIN_FOR = 0.10;
 	const double START_AT = 10.0, START_FOR = 0.25;
 
 	long    sub = 0;

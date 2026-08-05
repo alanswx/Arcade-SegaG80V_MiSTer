@@ -72,6 +72,12 @@ module segag80v_cpu #(
 	output wire  [7:0] io_dout,
 
 	output logic [1:0] coin_counter,
+	output wire        dbg_wram_wr,
+	output wire [15:0] dbg_wram_addr_raw,
+	output wire [15:0] dbg_wram_addr_scr,
+	output wire  [7:0] dbg_wram_data,
+	output wire        dbg_io_rd,
+	output wire  [7:0] dbg_port,
 	output wire        dbg_irq,
 	output wire  [1:0] dbg_coin_ff,
 	output wire        dbg_int_ack,
@@ -426,6 +432,12 @@ module segag80v_cpu #(
 	end
 
 	assign int_n = ~irq_line;
+	assign dbg_wram_wr       = sel_wram & mem_wr;
+	assign dbg_wram_addr_raw = cpu_a;
+	assign dbg_wram_addr_scr = wr_addr_s;
+	assign dbg_wram_data     = cpu_do;
+	assign dbg_io_rd   = io_rd;
+	assign dbg_port    = port;
 	assign dbg_irq     = irq_line;
 	assign dbg_coin_ff = coin_ff;
 	assign dbg_int_ack = int_ack;

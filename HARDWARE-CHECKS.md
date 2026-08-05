@@ -151,7 +151,43 @@ which sets the torpedo.
 Expect the right *kind* of sound in the right place at the right time, but not
 the right timbre. Per-channel netlist tracing is the way to tighten them.
 
-### 7c. Known gap: the speech board filter corner
+### 7c. MAME vs the Sega schematics — where they differ
+
+Checked MAME's netlists against the drawings in `refs/schematics/` and the
+Eliminator manual. Four things worth recording:
+
+| What | MAME | Schematic | Verdict |
+|---|---|---|---|
+| Speech R19 | 250k | **270K** (800-0294 rev H sh.5) | schematic; 250k is not an E24 value and MAME does not document the change. **Fixed.** |
+| Speech R20 | 4.7k, noted "schematic shows 470Ohm" | **4.7K** on 800-0294 | MAME right. The 470R is on the *other*, simpler drawing in the Astro Blaster / Space Fury manuals. Gain 3.128 confirmed. |
+| Speech U8 pins 2/3 | swapped vs schematic | drawn signal→pin 2 | MAME right, verified from a working PCB. As drawn the amp cannot work. |
+| Space Fury oscillators | split to 105.8/105.7/105.9 Hz | one shared osc | MAME deliberate, for netlist isolation. Real value ~105.8 Hz. |
+
+The R19 fix moves the speech low pass 167.5 -> 166.5 Hz. Negligible, but there
+was no reason to carry someone else's typo.
+
+**The valuable find was Eliminator's final mixer**, Sega drawing 800-3174 rev B
+sheet 8. U9 is a TL082 inverting summer with Rf = R5 = 10K and each source
+arrives through its own resistor, so the weights are simply 10K/Rin:
+
+| Source | Rin | Gain | vs BUFFER |
+|---|---|---|---|
+| PSG (the AY, fitted on Zektor) | R10 10K | 2.20 | +6.8 dB |
+| BUFFER — the summed event voices | R8 22K | 1.00 | reference |
+| divider chain / hexagons | R9 33K | 0.667 | -3.5 dB |
+| SKITTER | R6 220K | 0.100 | -20 dB |
+| ENEMY SHIP | R7 220K | 0.100 | -20 dB |
+
+Skitter and enemy ship sitting **20 dB below** everything else is not something
+the netlist makes obvious, and the first cut had them at equal weight. Now
+applied. The same drawing also confirms the board's noise source is an **MM5837**
+(U4), which is the polynomial `discrete_blocks.sv` already used, and it labels
+HI D6/D7 as **HEXAGONS**, not MAME's BACKGROUND.
+
+Space Fury's own mixer has not been extracted yet — its weights are still
+guesses.
+
+### 7d. Known gap: the speech board filter corner
 
 `speech_filter.sv` uses the 0.047u C10 the netlist specifies, giving a 167.5 Hz
 low pass. That is aggressive for speech, and 0.047u is a small value to read off

@@ -22,6 +22,12 @@
 //    f = 1.44 / ((2k + 2*47k) * 0.022u) = 682 Hz. That sets the reference for
 //    the mid-range voices on that board.
 //
+//    The final mixer weights are read straight off Sega drawing 800-3174 rev B
+//    sheet 8 (Eliminator manual) — see the sum below. That drawing also shows
+//    the board's noise source is an MM5837 (U4), which is why the LFSR in
+//    discrete_blocks.sv uses that polynomial, and it labels HI D6/D7 as
+//    HEXAGONS rather than MAME's BACKGROUND.
+//
 //  This program is free software under the GNU General Public License v3.
 //============================================================================
 
@@ -216,13 +222,33 @@ module sega_discrete #(
 	// (Eliminator/Zektor) and 2.0 (Space Fury), which is a reminder that the
 	// absolute level here is arbitrary either way.
 	// ------------------------------------------------------------------
-	wire signed [19:0] sum_e =
+	// Weights are the real ones, read off Sega drawing 800-3174 rev B sheet 8:
+	// U9 is a TL082 inverting summer with Rf = R5 = 10K, and each source
+	// arrives through its own resistor, so the gain is 10K/Rin.
+	//
+	//   BUFFER, the summed event voices   R8  22K   x1.00   (reference)
+	//   divider chain / hexagons          R9  33K   x0.667  -3.5 dB
+	//   SKITTER                           R6 220K   x0.100  -20 dB
+	//   ENEMY SHIP                        R7 220K   x0.100  -20 dB
+	//   PSG (the AY, fitted on Zektor)    R10 10K   x2.20   +6.8 dB
+	//
+	// Skitter and enemy ship being 20 dB down is the striking one, and is not
+	// something the netlist makes obvious.
+	wire signed [19:0] buf_e =
 		{{4{e_fire[15]}},    e_fire}    + {{4{e_ex1[15]}},     e_ex1}     +
 		{{4{e_ex2[15]}},     e_ex2}     + {{4{e_ex3[15]}},     e_ex3}     +
 		{{4{e_bounce[15]}},  e_bounce}  + {{4{e_tor1[15]}},    e_tor1}    +
-		{{4{e_tor2[15]}},    e_tor2}    + {{4{e_thrust[15]}},  e_thrust}  +
-		{{4{e_skitter[15]}}, e_skitter} + {{4{e_enemy[15]}},   e_enemy}   +
-		{{4{e_bg[15]}},      e_bg};
+		{{4{e_tor2[15]}},    e_tor2}    + {{4{e_thrust[15]}},  e_thrust};
+
+	wire signed [19:0] sk20 = {{4{e_skitter[15]}}, e_skitter};
+	wire signed [19:0] en20 = {{4{e_enemy[15]}},   e_enemy};
+	wire signed [19:0] bg20 = {{4{e_bg[15]}},      e_bg};
+
+	// 0.1 as >>3 - >>5 + >>7 - >>9, 0.667 as >>1 + >>3 + >>5 + >>7
+	wire signed [19:0] sum_e = buf_e
+		+ ((sk20 >>> 3) - (sk20 >>> 5) + (sk20 >>> 7) - (sk20 >>> 9))
+		+ ((en20 >>> 3) - (en20 >>> 5) + (en20 >>> 7) - (en20 >>> 9))
+		+ ((bg20 >>> 1) + (bg20 >>> 3) + (bg20 >>> 5) + (bg20 >>> 7));
 
 	wire signed [19:0] sum_s =
 		{{4{s_scale[15]}},   s_scale}   + {{4{s_moving[15]}},  s_moving}  +

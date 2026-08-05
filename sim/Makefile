@@ -9,9 +9,9 @@ RTL      := ../rtl
 VFLAGS   := -Wall -Wno-fatal --cc --exe --build -j 0 -O2 \
             -CFLAGS "-O2 -std=c++17"
 
-.PHONY: all security ports color6 geometry sp0250 usbtimer usbnoise xy xy1 cpu boot clean
+.PHONY: all security ports color6 geometry sp0250 usbtimer usbnoise usbfilter xy xy1 cpu boot clean
 
-all: security ports color6 geometry sp0250 usbtimer usbnoise xy xy1 cpu boot
+all: security ports color6 geometry sp0250 usbtimer usbnoise usbfilter xy xy1 cpu boot
 
 # ---------------------------------------------------------------------------
 
@@ -54,6 +54,16 @@ obj_usbnoise/Vusb_noise: $(RTL)/sound/usb_noise.sv tb/tb_usb_noise.cpp
 
 usbnoise: obj_usbnoise/Vusb_noise
 	@./obj_usbnoise/Vusb_noise
+
+obj_usbfilter/Vusb_filter: $(RTL)/sound/usb_filter.sv tb/tb_usb_filter.cpp \
+                           golden/usb_filter_golden.h
+	verilator $(VFLAGS) --Mdir obj_usbfilter \
+		--top-module usb_filter \
+		-CFLAGS "-I../golden" \
+		$(RTL)/sound/usb_filter.sv tb/tb_usb_filter.cpp
+
+usbfilter: obj_usbfilter/Vusb_filter
+	@./obj_usbfilter/Vusb_filter
 
 # ---------------------------------------------------------------------------
 
@@ -129,13 +139,18 @@ obj_cpu1/Vsegag80v_cpu: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 # Needs sim/roms/<set>.rom, built by tools/build_rom.py.
 obj_boot/Vboot_wrap: $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
                      $(RTL)/sega_security.sv $(RTL)/xy/sega_xy.sv \
-                     $(RTL)/xy/sega_xy_top.sv tb/boot_wrap.sv tb/tb_boot.cpp
+                     $(RTL)/xy/sega_xy_top.sv $(RTL)/sound/sega_usb.sv \
+                     $(RTL)/sound/usb_timer.sv $(RTL)/sound/usb_noise.sv \
+                     $(RTL)/sound/usb_filter.sv tb/boot_wrap.sv tb/tb_boot.cpp
 	verilator $(VFLAGS) -Wno-PINCONNECTEMPTY -Wno-TIMESCALEMOD \
 		-Wno-SYNCASYNCNET -Wno-MULTIDRIVEN -Wno-LATCH -Wno-CASEX \
 		--no-timing --Mdir obj_boot --top-module boot_wrap \
 		-I$(RTL)/tv80 \
 		tb/boot_wrap.sv $(RTL)/segag80v_cpu.sv $(RTL)/sega_ports.sv \
 		$(RTL)/sega_security.sv $(RTL)/xy/sega_xy.sv $(RTL)/xy/sega_xy_top.sv \
+		$(RTL)/sound/sega_usb.sv $(RTL)/sound/usb_timer.sv \
+		$(RTL)/sound/usb_noise.sv $(RTL)/sound/usb_filter.sv \
+		$(RTL)/i8035/i8035.v $(RTL)/spram.v $(RTL)/tv48/*.v \
 		$(RTL)/tv80/tv80e.v $(RTL)/tv80/tv80_core.v $(RTL)/tv80/tv80_alu.v \
 		$(RTL)/tv80/tv80_mcode.v $(RTL)/tv80/tv80_reg.v \
 		tb/tb_boot.cpp
@@ -148,8 +163,8 @@ boot: obj_boot/Vboot_wrap
 	@./obj_boot/Vboot_wrap roms/elim4.rom    5 150
 	@./obj_boot/Vboot_wrap roms/spacfury.rom 3 150
 	@./obj_boot/Vboot_wrap roms/zektor.rom   6 150
-	@./obj_boot/Vboot_wrap roms/tacscan.rom  5 150
-	@./obj_boot/Vboot_wrap roms/startrek.rom 3 150
+	@./obj_boot/Vboot_wrap roms/tacscan.rom  5 150 1
+	@./obj_boot/Vboot_wrap roms/startrek.rom 3 150 1
 
 cpu: obj_cpu/Vsegag80v_cpu obj_cpu0/Vsegag80v_cpu obj_cpu1/Vsegag80v_cpu
 	@./obj_cpu/Vsegag80v_cpu
@@ -191,4 +206,4 @@ xy1: obj_xy1/Vsega_xy
 	@./obj_xy1/Vsega_xy 1
 
 clean:
-	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_sp0250 obj_usbtimer obj_usbnoise obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1
+	rm -rf obj_security obj_ports obj_color6 obj_geometry obj_sp0250 obj_usbtimer obj_usbnoise obj_usbfilter obj_boot obj_cpu obj_cpu0 obj_cpu1 obj_xy obj_xy1

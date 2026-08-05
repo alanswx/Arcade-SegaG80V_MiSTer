@@ -34,11 +34,12 @@ static const int ROM_NEEDED = 0xC400;
 
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
-	if (argc < 3) { printf("usage: tb_boot <rom> <chip-id> [frames]\n"); return 2; }
+	if (argc < 3) { printf("usage: tb_boot <rom> <chip-id> [frames] [usb]\n"); return 2; }
 
 	const char *rompath = argv[1];
 	int chip   = atoi(argv[2]);
 	int frames = (argc > 3) ? atoi(argv[3]) : 3;
+	int usb    = (argc > 4) ? atoi(argv[4]) : 0;
 
 	static uint8_t rom[ROM_SIZE];
 	FILE *f = fopen(rompath, "rb");
@@ -64,7 +65,7 @@ int main(int argc, char **argv) {
 	auto *dut = new Vboot_wrap;
 
 	dut->clk = 0; dut->reset = 1;
-	dut->cfg_chip = chip; dut->cfg_usb = 0; dut->cfg_fc = 0;
+	dut->cfg_chip = chip; dut->cfg_usb = usb; dut->cfg_fc = 0;
 	// every switch input is active low, so idle is all ones
 	dut->in_d7d6 = 0xFF; dut->in_d5d4 = 0xFF;
 	dut->in_d3d2 = 0xFF; dut->in_d1d0 = 0x33;   // DIPs: 1 coin / 1 credit
@@ -98,6 +99,12 @@ int main(int argc, char **argv) {
 
 	long clocks = 0, vram_writes = 0, beam_on = 0, samples = 0, edgints = 0;
 	int  frames_done = 0;
+	// Universal Sound Board activity. usb_peak stays at zero unless the game
+	// uploaded a program, released the 8035 from reset and it drove the DACs.
+	long usb_nonzero = 0, usb_uploads = 0;
+	int  usb_peak = 0;
+	bool in_usb_wr = false;
+	std::set<uint16_t> usb_touched;
 	std::set<uint16_t> rom_pages, vram_touched;
 	std::set<uint8_t>  colours;
 	std::vector<uint16_t> trace;
@@ -109,6 +116,18 @@ int main(int argc, char **argv) {
 	for (long c = 0; c < MAX_CLOCKS && frames_done < frames; c++) {
 		tick();
 		clocks++;
+
+		{
+			int a = (int)(int16_t)dut->usb_audio_o;
+			if (a) usb_nonzero++;
+			if (abs(a) > usb_peak) usb_peak = abs(a);
+			// usb_wr is a level for the whole write cycle, like vram_wr
+			if (dut->usb_wr_o && !in_usb_wr) {
+				usb_uploads++;
+				usb_touched.insert((uint16_t)dut->usb_addr_o);
+			}
+			in_usb_wr = dut->usb_wr_o;
+		}
 
 		rom_pages.insert((uint16_t)(dut->rom_addr >> 8));
 		if (trace_n && dut->rom_addr != last_addr) {
@@ -185,6 +204,10 @@ int main(int argc, char **argv) {
 	       vram_writes, vram_touched.size());
 	printf("  beam samples        %ld  (%ld with beam on)\n", samples, beam_on);
 	printf("  distinct colours    %zu\n", colours.size());
+	if (usb)
+		printf("  USB board           %ld program writes (%zu addresses), "
+		       "audio peak %d over %ld non-zero samples\n",
+		       usb_uploads, usb_touched.size(), usb_peak, usb_nonzero);
 
 	int fails = 0;
 	auto check = [&](bool ok, const char *what) {
@@ -199,6 +222,14 @@ int main(int argc, char **argv) {
 	check(frames_done >= frames,    "vector generator completed the requested frames");
 	check(beam_on > 1000,           "vector generator drew a substantial picture");
 	check(colours.size() >= 2,      "more than one colour used");
+
+	// For the two USB games this is what stops the board being dead weight:
+	// the 8035 only makes noise if the Z80 uploaded its program through the
+	// scrambled $D000 window, dropped /LOAD, and the timers and DACs ran.
+	if (usb) {
+		check(usb_touched.size() > 256, "Z80 uploaded an 8035 program through $D000");
+		check(usb_nonzero > 1000,       "Universal Sound Board produced audio");
+	}
 
 	dut->final();
 	delete dut;

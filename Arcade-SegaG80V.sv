@@ -175,12 +175,13 @@ module emu
 	wire [2:0] game = game_id[2:0];
 	wire [2:0] cfg_chip;
 	wire       cfg_usb;
+	wire       cfg_speech;
 	wire [1:0] cfg_fc;
 	wire [2:0] cfg_orient;
 
 	sega_game_cfg gamecfg (
 		.game(game), .cfg_chip(cfg_chip), .cfg_usb(cfg_usb),
-		.cfg_fc(cfg_fc), .cfg_orient(cfg_orient)
+		.cfg_speech(cfg_speech), .cfg_fc(cfg_fc), .cfg_orient(cfg_orient)
 	);
 
 	wire [7:0] in_d7d6, in_d5d4, in_d3d2, in_d1d0, in_fc, in_coins;
@@ -249,6 +250,7 @@ module emu
 
 	wire [10:0] audio_ay;
 	wire signed [15:0] audio_speech;
+	wire signed [15:0] audio_usb;
 	wire       vec_tick;
 	wire [9:0] vec_x, vec_y;
 	wire [5:0] vec_colour;
@@ -258,7 +260,8 @@ module emu
 		.clk_vec(clk_vec),
 		.reset(machine_reset),
 		.pause(pause_cpu),
-		.cfg_chip(cfg_chip), .cfg_usb(cfg_usb), .cfg_fc(cfg_fc),
+		.cfg_chip(cfg_chip), .cfg_usb(cfg_usb), .cfg_speech(cfg_speech),
+		.cfg_fc(cfg_fc),
 		.rom_wr(ioctl_wr && rom_download),
 		.rom_addr(ioctl_addr[16:0]),
 		.rom_data(ioctl_dout),
@@ -272,7 +275,7 @@ module emu
 		.drawing(drawing), .frame_done(vec_frame_done), .vec_tick(vec_tick),
 		.snd_wr(), .snd_sel(), .ay_wr(), .ay_port(),
 		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(), .snd_data(),
-		.audio_ay(audio_ay), .audio_speech(audio_speech)
+		.audio_ay(audio_ay), .audio_speech(audio_speech), .audio_usb(audio_usb)
 	);
 
 	//============================================================
@@ -366,11 +369,12 @@ module emu
 	assign HDMI_BLACKOUT = 1'b0;
 	assign HDMI_BOB_DEINT = 1'b0;
 
-	// Zektor's PSG and the speech board. The discrete sound boards and the
-	// Universal Sound Board are the remaining audio work, so there is still
-	// headroom left in the mix for them.
+	// Zektor's PSG, the speech board and the Universal Sound Board. On Star
+	// Trek the USB already arrives inside audio_speech via the CD4053, so
+	// audio_usb is zero there and this never double-counts it. The discrete
+	// sound boards are the remaining audio work, so there is headroom left.
 	wire signed [15:0] audio_mix =
-		$signed({3'd0, audio_ay, 2'd0}) + (audio_speech >>> 1);
+		$signed({3'd0, audio_ay, 2'd0}) + (audio_speech >>> 1) + (audio_usb >>> 1);
 	assign AUDIO_L = audio_mix;
 	assign AUDIO_R = audio_mix;
 	assign AUDIO_S = 1'b1;

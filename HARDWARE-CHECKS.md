@@ -4,7 +4,7 @@ For whoever takes this to the DE10-Nano. Everything in `sim/` is verified
 against MAME in simulation; this file lists only what **cannot** be checked
 without real hardware, plus what is known good so you don't re-test it.
 
-Run `cd sim && make all` first — 15/15 should pass before a build is worth
+Run `cd sim && make all` first — 17/17 should pass before a build is worth
 doing. If any of those fail, fix that before touching Quartus.
 
 ---
@@ -17,6 +17,13 @@ Do not re-verify unless something regressed.
 |---|---|
 | 2026-08-03 | All five games boot, render attract screens, DE10-Nano |
 | 2026-08-04 | Havoc renderer migration, 125 MHz PLL, new clock topology |
+
+### Resource note
+
+The Universal Sound Board adds a second 8035 (`tv48`), 4K of shared program RAM
+and 1K of work RAM. If the fit gets tight, that is the newest thing in the
+build. `usb_filter.sv` is deliberately multiplier-free apart from three shared
+envelope DAC gains, so it should cost logic rather than DSPs.
 
 ---
 
@@ -80,26 +87,46 @@ The only game with swapped axes (`SWAP_XY | FLIP_X | FLIP_Y`), rendered into a
 portrait 832×1024 target. **Check:** it is rotated the right way and fills the
 screen sensibly at 720p and 1080p.
 
-### 7. Audio — PSG and speech board
+### 7. Audio — nothing has ever been heard
 
-Implemented: Zektor's AY-3-8912, and the speech board (8035 + SP0250) used by
-Space Fury, Zektor and Star Trek. **Not** implemented: the Universal Sound
-Board (Tac/Scan, Star Trek) and the discrete sound boards (Eliminator, Space
-Fury, Zektor), so silence from those is expected rather than a bug.
+Implemented and verified in simulation, **never played through a speaker**:
+
+| Board | Games | Verification |
+|---|---|---|
+| AY-3-8912 | Zektor | jt49, standard part |
+| Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | SP0250 bit-exact vs MAME |
+| Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | 8253 and MM5837 bit-exact; analog chain correlates 1.00000 with MAME |
+
+**Not** implemented: the discrete sound boards (Eliminator, Space Fury, Zektor),
+so silence from those is expected rather than a bug.
 
 **Check:**
 - Zektor makes music and effects.
-- **Space Fury speaks.** This is the big one — the SP0250 is bit-exact against
-  MAME in simulation but the 8035 has never been seen executing the speech
-  program. The attract line is *"So, a creature for my amusement. Prepare for
-  battle!"*.
+- **Space Fury speaks.** The SP0250 is bit-exact against MAME in simulation but
+  the 8035 has never been seen executing the speech program. The attract line
+  is *"So, a creature for my amusement. Prepare for battle!"*.
 - Star Trek and Zektor also speak.
+- **Tac/Scan makes music.** This is the Universal Sound Board's only outing
+  where nothing else can mask it — Star Trek has the speech board too.
 - Nothing clicks, buzzes or clips.
 
 If speech is silent, the likely suspects in order: the `$38`/`$3B` write
 strobes, the T0/INT handshake off the latch's bit 7, and the speech-data ROM
 paging through P2. If it is present but garbled, suspect the ROM layout or the
 data-ROM bank rather than the SP0250 itself.
+
+If the **USB** is silent, note that the boot bench already proves a lot of the
+chain: Tac/Scan writes all 4096 bytes of the 8035 program through the scrambled
+`$D000` window, `/LOAD` releases the 8035, and the board produces audio. So
+suspect the *level*, not the plumbing — `usb_filter.sv` deliberately carries
+12 dB of headroom (MAME's nominal 1.0 maps to a quarter of full scale, because
+MAME's own value for this chain peaks at 3.26), and `Arcade-SegaG80V.sv` halves
+it again in the mix. If it is present but too quiet, raise it there rather than
+inside the filter.
+
+**Level balance between boards is a guess and needs an ear.** The mix in
+`Arcade-SegaG80V.sv` is `audio_ay + (audio_speech >>> 1) + (audio_usb >>> 1)`.
+Nothing in simulation can tell you whether those relative weights are right.
 
 **MRAs must be regenerated** for this — the ROM image grew from 0xC400 to
 0x10C00 bytes to carry the speech ROMs. Old MRAs will load a truncated image.

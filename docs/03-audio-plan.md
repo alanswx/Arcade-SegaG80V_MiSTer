@@ -9,7 +9,7 @@ where the real thing is knowable.**
 |---|---|---|---|
 | 1 | AY-3-8912 | Zektor | **done** |
 | 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | **done**, unheard on hardware |
-| 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | **8253 done**, board next |
+| 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | **done**, unheard on hardware |
 | 4 | Discrete boards | Eliminator, Space Fury, Zektor | last, open-ended |
 
 ---
@@ -125,7 +125,7 @@ misleading — the real part is the SP0250 (`segaspeech.cpp` includes
 `sound/sp0250.h`). Only the Italian *Advisor* bootleg uses a TMS5100, and it is
 unimplemented in MAME too.
 
-## 3. Universal Sound Board — 8253 done, board next
+## 3. Universal Sound Board — done, unheard on hardware
 
 **Hardware:** 8035 @ 6 MHz, three 8253 PITs, DACs, an MM5837 noise source and
 analog filters. Drawing 800-0377, three sheets, in `refs/schematics/`.
@@ -135,9 +135,10 @@ window at `$D000-$DFFF`, which is why that window goes through the security
 scrambler. It is already wired in `segag80v_cpu`; the `usb_*` ports are
 currently stubbed off in `segag80v.sv`.
 
-**What's needed:** an 8253 PIT (none exists in any core checked; it is small),
-the DAC/mixer chain, and the MM5837 LFSR. MAME's model is `segausb.cpp` (850
-lines) plus `nl_segausb.cpp` (545 lines of netlist for the analog side).
+Built as `rtl/sound/sega_usb.sv` (digital half) plus `rtl/sound/usb_timer.sv`,
+`usb_noise.sv` and `usb_filter.sv`. MAME's model is `segausb.cpp` (850 lines)
+plus `nl_segausb.cpp` (545 lines of netlist for the analog side); this core
+follows the non-netlist path, which is the one MAME runs by default.
 
 Clocks from MAME: `USB_MASTER_CLOCK` 6 MHz, `USB_2MHZ_CLOCK` = /3,
 `USB_PCS_CLOCK` = /2 again, `USB_GOS_CLOCK` = /16/4, `MM5837_CLOCK` 100 kHz.
@@ -163,17 +164,16 @@ clock read pre-write state and the outputs diverge. The RTL sequences through
 local variables to get this right. This is the third time this exact hazard has
 come up in this core (the `$BD/$BE` multiplier, the SP0250 FIFO, and now here).
 
-### Remaining: the board itself
+### The board — digital half
 
-`rtl/sound/sega_usb.sv`. The digital half is straightforward and mirrors the
-speech board; the analog chain is the part that needs care.
+`rtl/sound/sega_usb.sv`. Mirrors the speech board.
 
 **Digital**
 
 | Piece | Detail |
 |---|---|
 | 8035 | 6 MHz, `I_EA` high, same wiring pattern as `sega_speech.sv` |
-| Program RAM | 4K at `$0000-$0FFF`, **shared with the main Z80 at `$D000-$DFFF`** — already routed through `segag80v_cpu`, currently stubbed off in `segag80v.sv` |
+| Program RAM | 4K at `$0000-$0FFF`, **shared with the main Z80 at `$D000-$DFFF`**, routed through `segag80v_cpu`'s scrambler |
 | Work RAM | 1K as four 256-byte banks, `P2[1:0]` selects; the 8035's whole I/O space maps to it |
 | Control decode | writes to work RAM offsets `$00-$17`: `$00-$03` 8253 U41, `$04-$07` ENV0, `$08-$0B` 8253 U42, `$0C-$0F` ENV1, `$10-$13` 8253 U43, `$14-$17` ENV2. `$x7` bit 0 is that group's `config` bit |
 | P1 in | `in_latch & 0x7F` |
@@ -198,26 +198,87 @@ stuck at zero and the comparison passed with 0 failures — the coverage check
 (output should be high about half the time) is what caught it. Worth
 remembering that a stuck DUT matches a stuck model.
 
-**Analog chain** — this is where the fidelity question is. MAME runs its
-stream at **2 MHz** and applies seventeen one-pole filters per sample:
+### Three things the /LOAD bit ties together
 
-- 4 on the noise source (three RC-ish, one CR)
+Bit 7 of the input latch (`$3F` write) is `/LOAD`, and it does three jobs that
+have to move together. Getting one of them wrong is silent — the board just
+plays nothing, or plays garbage:
+
+1. It **holds the 8035 in reset** while set (MAME asserts `INPUT_LINE_RESET`).
+2. It **gates writes to the shared program RAM** — `ram_w` drops the write
+   unless `in_latch & 0x80`. So the program can only be loaded while the 8035
+   is stopped, which is the whole point.
+3. While the 8035 has CLEAR low (P2 bit 6), a host write to `$3F` **keeps only
+   bit 7** and discards the low seven bits.
+
+`$3F` is a level for the whole I/O cycle, so `segag80v.sv` strobes it on the
+falling edge like the speech board's `$38`/`$3B`. That level-vs-edge trap has
+now bitten four separate times in this core.
+
+### Analog chain
+
+MAME runs its stream at **2 MHz** and applies seventeen one-pole filters per
+sample:
+
+- 3 poles plus a direct term on the noise source, then a CR filter and a trim
 - 4 per group x 3 groups: two channel CR filters, two switched gate RC filters
   whose exponents are selected by that group's channel 2 output
 - 1 final CR
 
-Each is `capval += (input - capval) * exponent` (RC) or the CR variant. At
-12.096 MHz there are ~6 clocks per 2 MHz tick, so roughly three multipliers
-time-shared across the seventeen filters, in fixed point.
+Each is `capval += (input - capval) * exponent` (RC) or the CR variant.
 
 **Fidelity note:** MAME's own comment calls the noise filter *"just an
 approximation to the pink noise filter being applied on the PCB, but it sounds
 pretty close"*, and the whole chain is `double`. So unlike the 8253, the SP0250
-and the vector generator, **there is no bit-exact target here** — a fixed-point
-implementation can only be judged by ear against MAME. Plan the word lengths
-deliberately (the RC coefficients run from 0.57 to 0.998, so the state needs
-enough fractional bits that the slowest pole does not stall) and expect to
-tune.
+and the vector generator, **there is no bit-exact target here.**
+
+What is checkable is that the topology and evaluation order match MAME exactly
+and that every coefficient is close. `rtl/sound/usb_filter.sv` is Q8.24 fixed
+point, and **every filter coefficient is a sum of at most four signed
+powers of two, so the filters need no multipliers at all** — the closest is
+0.03% and the worst 0.55%. Only the three envelope DAC gains need real
+multipliers, and the sequencer shares one set across the three groups by
+processing one group per clock (noise, three groups, final mix — five of the
+six clocks available per 2 MHz tick).
+
+`make usbfilter` scores the RTL against a transcription of MAME's double
+chain. It cannot demand bit equality, so it asks the questions that matter for
+a filter — shape, magnitude, level, boundedness — plus coverage, because a
+filter comparison that passes on silence proves nothing:
+
+```
+usb_filter: 349999 samples scored
+  golden  rms 0.39329  peak 3.26496  mean +0.00566
+  rtl     rms 0.39257  peak 3.25354  mean +0.00592
+  correlation 1.00000   rms ratio 0.9982   peak abs error 0.01142
+  saturated samples 0   headroom used 3.25 of 4.0
+  coverage: config0 595000 config1 605000  gate-slow 600728 gate-fast 599272
+```
+
+**Headroom.** MAME's own value for this chain reaches 3.26 on a worst-case
+stimulus, so mapping its nominal 1.0 to 16-bit full scale would clip the
+board's own peaks. The RTL maps 1.0 to a quarter of full scale (12 dB of
+headroom) and lets the core's mixer set the level.
+
+**Two ordering details worth keeping**, both easy to get subtly wrong:
+
+- The gate filters are stepped **within** the sample and their output is used
+  immediately — in config 0 it feeds channel 2, in config 1 it filters the
+  already-summed mix. Using the stored value instead adds a sample of delay and
+  changes the topology.
+- Channel 2's gate toggles every **32** 2 MHz ticks, not 64 or 128: MAME's
+  `USB_2MHZ_CLOCK / USB_GOS_CLOCK / 2` is `64 / 2`.
+
+### Routing
+
+Per MAME's `machine_config`, the two games differ:
+
+- **Tac/Scan** — `SEGAUSB(...).add_route(..., "speaker", 1.0)`, straight out.
+- **Star Trek** — `SEGAUSB(...).add_route(..., "speech", 1.0, 1)`, into the
+  speech board's CD4053 aux input, gated by speech control bit 5.
+
+`cfg_speech` in `sega_game_pkg.sv` picks between them so the mix never
+double-counts the board.
 
 ## 4. Discrete boards — last
 

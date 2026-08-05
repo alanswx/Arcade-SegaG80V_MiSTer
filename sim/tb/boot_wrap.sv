@@ -42,6 +42,9 @@ module boot_wrap #(
 	output wire        ce_vcl_o,
 	output wire        edgint_o,
 	output wire        drawing_o,
+	output wire signed [15:0] usb_audio_o,
+	output wire        usb_wr_o,
+	output wire [11:0] usb_addr_o,
 	output wire [11:0] vram_addr_o,
 	output wire  [7:0] vram_din_o,
 	output wire        vram_wr_o,
@@ -103,7 +106,8 @@ module boot_wrap #(
 		.rom_addr(rom_addr), .rom_data(rom_data),
 		.vram_addr(vram_addr), .vram_din(vram_din), .vram_wr(vram_wr),
 		.vram_dout(vram_dout),
-		.usb_addr(), .usb_din(), .usb_wr(), .usb_dout(8'hFF),
+		.usb_addr(usb_addr), .usb_din(usb_din), .usb_wr(usb_wr),
+		.usb_dout(usb_dout),
 		.in_d7d6(in_d7d6), .in_d5d4(in_d5d4),
 		.in_d3d2(in_d3d2), .in_d1d0(in_d1d0),
 		.in_fc(in_fc), .in_coins(in_coins),
@@ -111,9 +115,30 @@ module boot_wrap #(
 		.draw_flag(drawing), .edgint(edgint),
 		.coin_a(coin_a), .coin_b(coin_b), .service(service),
 		.snd_wr(), .snd_sel(), .ay_wr(),
-		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(),
-		.usb_status(8'hFF), .io_dout(), .coin_counter(),
+		.speech_data_wr(), .speech_ctrl_wr(), .usb_data_wr(usb_data_wr),
+		.usb_status(usb_status), .io_dout(), .coin_counter(),
 		.dbg_op_addr(dbg_op_addr)
+	);
+
+	// The Universal Sound Board. Tac/Scan and Star Trek poll its status
+	// register at $3F while booting, so a broken board shows up here as a
+	// game that no longer reaches attract mode.
+	wire [11:0] usb_addr;
+	wire  [7:0] usb_din, usb_dout, usb_status;
+	wire        usb_wr, usb_data_wr;
+
+	logic usb_data_d;
+	always_ff @(posedge clk) begin
+		if (reset) usb_data_d <= 1'b0;
+		else       usb_data_d <= usb_data_wr;
+	end
+
+	sega_usb #(.CLK_HZ(CE_MOD)) usb (
+		.clk(clk), .reset(reset),
+		.data_wr(~usb_data_wr && usb_data_d), .din(usb_din), .status(usb_status),
+		.pgm_addr(usb_addr), .pgm_din(usb_din), .pgm_wr(usb_wr),
+		.pgm_dout(usb_dout),
+		.audio(usb_audio_o)
 	);
 
 	sega_xy_top #(.PHASE_CLKS(PHASE_CLKS)) xy (
@@ -127,6 +152,8 @@ module boot_wrap #(
 		.drawing(drawing), .frame_done(frame_done_o)
 	);
 
+	assign usb_wr_o    = usb_wr;
+	assign usb_addr_o  = usb_addr;
 	assign ce_cpu_o    = ce_cpu;
 	assign ce_vcl_o    = ce_vcl;
 	assign edgint_o    = edgint;

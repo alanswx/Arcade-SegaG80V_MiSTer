@@ -29,6 +29,7 @@ module sega_game_cfg (
 	input  wire  [2:0] game,
 	output logic [2:0] cfg_chip,     // sega_security_pkg id
 	output logic       cfg_usb,      // Universal Sound Board RAM at $D000
+	output logic       cfg_speech,   // speech board fitted
 	output logic [1:0] cfg_fc,       // 0 = plain port, 1 = spinner, 2 = elim4
 	output logic [2:0] cfg_orient    // {swap_xy, flip_y, flip_x}, MAME's flags
 );
@@ -36,20 +37,20 @@ module sega_game_cfg (
 	always_comb begin
 		unique case (game)
 		sega_game_pkg::GAME_ELIM2:
-			begin cfg_chip=3'd4; cfg_usb=1'b0; cfg_fc=2'd0; cfg_orient=3'b010; end
+			begin cfg_chip=3'd4; cfg_usb=1'b0; cfg_speech=1'b0; cfg_fc=2'd0; cfg_orient=3'b010; end
 		sega_game_pkg::GAME_ELIM4:
-			begin cfg_chip=3'd5; cfg_usb=1'b0; cfg_fc=2'd2; cfg_orient=3'b010; end
+			begin cfg_chip=3'd5; cfg_usb=1'b0; cfg_speech=1'b0; cfg_fc=2'd2; cfg_orient=3'b010; end
 		sega_game_pkg::GAME_SPACFURY:
-			begin cfg_chip=3'd3; cfg_usb=1'b0; cfg_fc=2'd0; cfg_orient=3'b010; end
+			begin cfg_chip=3'd3; cfg_usb=1'b0; cfg_speech=1'b1; cfg_fc=2'd0; cfg_orient=3'b010; end
 		sega_game_pkg::GAME_ZEKTOR:
-			begin cfg_chip=3'd6; cfg_usb=1'b0; cfg_fc=2'd1; cfg_orient=3'b010; end
+			begin cfg_chip=3'd6; cfg_usb=1'b0; cfg_speech=1'b1; cfg_fc=2'd1; cfg_orient=3'b010; end
 		sega_game_pkg::GAME_TACSCAN:
 			// ORIENTATION_FLIP_X ^ ROT270 = SWAP_XY | FLIP_Y | FLIP_X
-			begin cfg_chip=3'd5; cfg_usb=1'b1; cfg_fc=2'd1; cfg_orient=3'b111; end
+			begin cfg_chip=3'd5; cfg_usb=1'b1; cfg_speech=1'b0; cfg_fc=2'd1; cfg_orient=3'b111; end
 		sega_game_pkg::GAME_STARTREK:
-			begin cfg_chip=3'd3; cfg_usb=1'b1; cfg_fc=2'd1; cfg_orient=3'b010; end
+			begin cfg_chip=3'd3; cfg_usb=1'b1; cfg_speech=1'b1; cfg_fc=2'd1; cfg_orient=3'b010; end
 		default:
-			begin cfg_chip=3'd0; cfg_usb=1'b0; cfg_fc=2'd0; cfg_orient=3'b010; end
+			begin cfg_chip=3'd0; cfg_usb=1'b0; cfg_speech=1'b0; cfg_fc=2'd0; cfg_orient=3'b010; end
 		endcase
 	end
 endmodule

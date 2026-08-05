@@ -36,6 +36,7 @@ module segag80v #(
 	// ---- MRA configuration ----
 	input  wire  [2:0] cfg_chip,     // security chip, see sega_security_pkg
 	input  wire        cfg_usb,      // Universal Sound Board RAM at $D000
+	input  wire        cfg_speech,   // speech board fitted
 	input  wire  [1:0] cfg_fc,       // 0 = plain, 1 = spinner, 2 = elim4
 
 	// ---- ROM download ($0000-$BFFF program, $C000-$C3FF sin/cos PROM) ----
@@ -78,7 +79,8 @@ module segag80v #(
 
 	// ---- audio ----
 	output wire [10:0] audio_ay,     // Zektor AY-3-8912
-	output wire signed [15:0] audio_speech
+	output wire signed [15:0] audio_speech,
+	output wire signed [15:0] audio_usb
 );
 
 	// ------------------------------------------------------------------
@@ -157,7 +159,7 @@ module segag80v #(
 	wire [11:0] vram_addr, usb_addr;
 	wire  [7:0] vram_din,  usb_din;
 	wire        vram_wr,   usb_wr;
-	wire  [7:0] vram_dout;
+	wire  [7:0] vram_dout, usb_dout, usb_status;
 
 	segag80v_cpu #(.WAIT_STATES(WAIT_STATES)) cpu (
 		.clk        (clk_vec),
@@ -175,7 +177,7 @@ module segag80v #(
 		.usb_addr   (usb_addr),
 		.usb_din    (usb_din),
 		.usb_wr     (usb_wr),
-		.usb_dout   (8'hFF),
+		.usb_dout   (usb_dout),
 		.in_d7d6    (in_d7d6),
 		.in_d5d4    (in_d5d4),
 		.in_d3d2    (in_d3d2),
@@ -196,7 +198,7 @@ module segag80v #(
 		.speech_data_wr (speech_data_wr),
 		.speech_ctrl_wr (speech_ctrl_wr),
 		.usb_data_wr    (usb_data_wr),
-		.usb_status     (8'hFF),
+		.usb_status     (usb_status),
 		.io_dout    (),
 		.coin_counter (),
 		.dbg_op_addr  ()
@@ -225,23 +227,48 @@ module segag80v #(
 		.rom_wr    (rom_wr_speech),
 		.rom_addr  (rom_addr[14:0] - SPEECH_BASE[14:0]),
 		.rom_data  (rom_data),
-		.usb_audio (16'sd0),          // the USB is not implemented yet
+		// Star Trek routes the USB through the speech board's CD4053;
+		// Tac/Scan has no speech board and goes straight to the amp.
+		.usb_audio (cfg_speech ? usb_audio : 16'sd0),
 		.audio     (audio_speech)
 	);
 
+	// ------------------------------------------------------------------
+	// Universal Sound Board (Tac/Scan, Star Trek)
+	// ------------------------------------------------------------------
+	wire signed [15:0] usb_audio;
+
+	sega_usb #(.CLK_HZ(CLK_HZ)) usb (
+		.clk      (clk_vec),
+		.reset    (reset),
+		.data_wr  (usb_data_stb),
+		.din      (snd_data),
+		.status   (usb_status),
+		.pgm_addr (usb_addr),
+		.pgm_din  (usb_din),
+		.pgm_wr   (usb_wr),
+		.pgm_dout (usb_dout),
+		.audio    (usb_audio)
+	);
+
+	assign audio_usb = cfg_speech ? 16'sd0 : usb_audio;
+
 	// $38 and $3B are levels for the whole I/O cycle; strobe once at the end.
-	logic sp_data_d, sp_ctrl_d;
+	logic sp_data_d, sp_ctrl_d, usb_data_d;
 	always_ff @(posedge clk_vec) begin
 		if (reset) begin
-			sp_data_d <= 1'b0;
-			sp_ctrl_d <= 1'b0;
+			sp_data_d  <= 1'b0;
+			sp_ctrl_d  <= 1'b0;
+			usb_data_d <= 1'b0;
 		end else begin
-			sp_data_d <= speech_data_wr;
-			sp_ctrl_d <= speech_ctrl_wr;
+			sp_data_d  <= speech_data_wr;
+			sp_ctrl_d  <= speech_ctrl_wr;
+			usb_data_d <= usb_data_wr;
 		end
 	end
 	wire speech_data_stb = ~speech_data_wr && sp_data_d;
 	wire speech_ctrl_stb = ~speech_ctrl_wr && sp_ctrl_d;
+	wire usb_data_stb    = ~usb_data_wr    && usb_data_d;
 
 	sega_ay #(.CLK_HZ(CLK_HZ)) ay (
 		.clk      (clk_vec),

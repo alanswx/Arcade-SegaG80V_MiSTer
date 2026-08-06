@@ -65,7 +65,7 @@ to either red or yellow. That is not an acceptable approximation.
 
 ## Consequence
 
-Implement the repack described in `docs/02-mister-core-plan.md` §3:
+Repack the framebuffer pixel to carry all six colour bits:
 
 ```
 pixel_data[15:0] = { rgb[5:0], draw_idx[3:0], z[5:0] }
@@ -74,8 +74,12 @@ pixel_data[15:0] = { rgb[5:0], draw_idx[3:0], z[5:0] }
 Sega's intensity is binary, so surrendering two bits of Z costs nothing here —
 6 bits of brightness headroom is far more than the hardware can express.
 
-Keep the change isolated so a renderer update from upstream can be rebased, and
-record it under "Local modifications" in `vendored-sources.md`.
+Keep the change isolated so a renderer update from upstream can be rebased.
+
+**Done** — the packing as built is `{rgb[5:0], draw_idx[2:0], z[7:1]}` out of
+the rasteriser and `{rgb[5:0], fresh, energy[8:0]}` composed, with the per-gun
+2-bit ladder pulled out into `vfb_dac_ladder.sv`. Every touched file is listed
+under "Local modifications" in [`vendored-sources.md`](vendored-sources.md).
 
 ## Reproducing
 

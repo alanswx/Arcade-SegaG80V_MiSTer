@@ -9,9 +9,11 @@ adapted for the Sega 2-bit-per-gun colour ladder. Inter-frame persistence uses
 the Major Havoc sparse phosphor compositor; there is no separate present gate.
 
 > **Status: running on real hardware.** All five games boot and render on a
-> DE10-Nano. Controls are mapped for every game and Zektor has its PSG; the
-> speech board, Universal Sound Board and the discrete boards are still to do —
-> see [docs/03-audio-plan.md](docs/03-audio-plan.md). See [Progress](#progress).
+> DE10-Nano, with controls and DIP menus for every game. **All four sound
+> boards are implemented** — AY-3-8912, speech, Universal Sound Board and the
+> discrete boards — and every game makes sound in simulation, but none of it
+> has been heard through a speaker yet. See [Progress](#progress) and
+> [HARDWARE-CHECKS.md](HARDWARE-CHECKS.md).
 
 **No ROMs are included.** Nothing here works without them.
 
@@ -49,7 +51,7 @@ Full hardware notes: [`docs/01-hardware-reference.md`](docs/01-hardware-referenc
 | `rtl/xy/sega_xy_top.sv` — vector RAM + sin PROM wrapper | done, lints clean |
 | `rtl/sega_ports.sv` — LS253 matrix, spinner, elim4, multiplier | **done, verified** |
 | `rtl/segag80v_cpu.sv` — Z80, memory/IO map, wait states, IRQ chain | **done, verified** |
-| `rtl/videodr0me_fb/vfb_color6.sv` — 6-bit colour repack | **done, verified** |
+| `rtl/videodr0me_fb/vfb_dac_ladder.sv` — 6-bit colour repack | **done, verified** |
 | `rtl/sega_geometry.sv` — coordinate map + orientation | **done, verified** |
 | `rtl/segag80v.sv` — machine (CPU + X-Y + ROM) | done, lints clean |
 | `rtl/sega_video.sv` — mode timing + geometry + renderer | done, lints clean |
@@ -58,8 +60,11 @@ Full hardware notes: [`docs/01-hardware-reference.md`](docs/01-hardware-referenc
 | Controls — all six games, from MAME's INPUT_PORTS | done |
 | Spinner (Zektor, Tac/Scan, Star Trek) | done, untested on hardware |
 | Audio: Zektor AY-3-8912 | done |
-| Audio: speech board, USB, discrete boards | see [docs/03-audio-plan.md](docs/03-audio-plan.md) |
+| Audio: speech board (8035 + SP0250) + output filter | **done, verified** |
+| Audio: Universal Sound Board (8035 + 3x 8253) | **done, verified** |
+| Audio: discrete boards (Eliminator, Zektor, Space Fury) | done — behavioural, see below |
 | DIP switches as MRA `<switches>` | done |
+| Hiscore save | **not implemented** |
 | **Runs on real hardware** | **yes** |
 
 No present gate: derpyder's Tempest core needs one because Tempest redraws its
@@ -73,15 +78,21 @@ Every finished module is checked against MAME rather than by inspection.
 
 ```
 cd sim
-make all        # everything below
+make all        # all 17 of the below
 make security   # 315-00xx scrambler vs MAME's sega_decrypt* functions
 make ports      # LS253 matrix, spinner, elim4 demux, multiplier vs MAME
-make color6     # 6-bit colour resolution, all 64 colours x 512 intensities
+make color6     # 2-bit-per-gun DAC ladder, all 64 colours x 1024 levels
+make geometry   # vector field -> framebuffer coordinate map
+make sp0250     # LPC speech synthesiser vs MAME, bit-exact
+make usbtimer   # 8253 PIT vs MAME, bit-exact
+make usbnoise   # MM5837 noise source vs MAME, bit-exact
+make usbfilter  # USB analog chain vs MAME's double-precision model
 make xy         # vector generator vs the MAME-derived golden model
 make xy1        # same, with the alternate phase-clock reading
-make geometry   # vector field -> framebuffer coordinate map
 make cpu        # hand-assembled Z80 code through the real tv80 core
 make boot       # boot all six real game ROMs end to end
+
+make audio      # not a test: records 30 s of each game's audio to WAV
 ```
 
 `make boot` needs `sim/roms/<set>.rom`, built from MAME romsets by
@@ -93,7 +104,11 @@ Current results:
 ```
 sega_security_scramble: 458752 checked, 0 failed          # exhaustive
 sega_ports:              24641 checked, 0 failed
-vfb_color6:              33029 checked, 0 failed
+vfb_dac_ladder:           4096 checked, 0 failed, worst error 1 LSB
+sp0250:                 100000 samples, 0 failed, 128 of 128 DAC values
+usb_timer:             6000000 comparisons, 0 failed
+usb_noise:              400000 steps, 0 failed
+usb_filter:             349999 samples, correlation 1.00000 vs MAME
 sega_xy: sine PROM = real (roms/s-c.xyt-u39)
 sega_xy: 48 real vector-RAM snapshots
 sega_xy: 90 cases, 819710 golden samples, 0 failed
@@ -104,18 +119,18 @@ segag80v_cpu: 6 vector-RAM writes observed in 268 clocks
   ok  scrambled write $E134 -> addr 184 data 55
   ok  scrambled write $E278 -> addr 278 data 5A
   ok  unscrambled LD (HL)   -> addr 334 data 99
-  ok  IN ($F8) then write   -> addr 420 data 96
+  ok  IN ($F8) then write   -> addr 420 data F6
   ok  ISR write (interrupt) -> addr 520 data C3
 wait-state timing: 0w=178 1w=223 2w=268 (deltas 45, 45)
   ok  one extra clock per memory cycle per wait state
 
-boot (150 frames each, real ROMs):
+boot (150 frames each, real ROMs; also coins up and checks the credit lands):
   elim2     66908 beam samples, 19 colours   PASS
-  elim4     71884 beam samples, 19 colours   PASS
-  spacfury  48541 beam samples,  6 colours   PASS
-  zektor    46264 beam samples,  5 colours   PASS
-  tacscan   41145 beam samples, 16 colours   PASS
-  startrek  17949 beam samples, 63 colours   PASS
+  elim4     71923 beam samples, 19 colours   PASS
+  spacfury  52747 beam samples, 31 colours   PASS
+  zektor    57983 beam samples, 16 colours   PASS
+  tacscan   41145 beam samples, 16 colours   PASS  + USB uploaded 4096 bytes
+  startrek  17949 beam samples, 63 colours   PASS  + USB uploaded 4096 bytes
 ```
 
 ## Does it actually run the games?
@@ -178,6 +193,41 @@ modifications" in [`Research/vendored-sources.md`](Research/vendored-sources.md)
 with the method and full results in
 [`Research/colour-census.md`](Research/colour-census.md).
 
+## Audio
+
+All four sound boards are implemented, but they are **not equally trustworthy**
+and the README should say so plainly:
+
+| Board | Games | How it is verified |
+|---|---|---|
+| AY-3-8912 | Zektor | jt49, a standard part |
+| Speech board — 8035 + SP0250 | Space Fury, Zektor, Star Trek | **SP0250 bit-exact vs MAME**; output filter transcribed from `nl_segaspeech.cpp` |
+| Universal Sound Board — 8035 + 3x 8253 | Tac/Scan, Star Trek | **8253 and MM5837 bit-exact**; analog chain correlates **0.999587** with MAME's double-precision model on real gameplay |
+| Discrete boards | Eliminator, Zektor, Space Fury | **behavioural reconstruction — nothing to diff against** |
+
+The discrete boards are the weak link. MAME models them only as SPICE-style
+netlists — 30 KB each of 555 timers, CA3080 transconductance amps and CD4011
+one-shots — so there is no simplified model to port and no reference to check
+against. What *is* faithful is the bit-to-sound map (from the netlist `ALIAS`
+lines), the fact that the latch bits are **active low**, and the final mixer
+weights, which were read off Sega drawing 800-3174 sheet 8 and show skitter and
+enemy ship sitting 20 dB below everything else. The envelope times and pitches
+are estimates.
+
+Two divergences between MAME and the Sega drawings were found and are recorded
+in [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md): the speech board's **R19 is 270K
+on drawing 800-0294, not MAME's 250k** (fixed here), and MAME's note that R20
+"should be 470 Ohm" refers to a different, simpler drawing — 800-0294 shows
+4.7K, which confirms the op-amp gain.
+
+`make audio` runs a real game through the whole machine, coins up, presses
+start, and records each board separately to WAV at 48 kHz. It is a listening
+aid, not a pass/fail test, and it is how the speech filter was checked against a
+real cabinet recording (spectral match 0.24 unfiltered, **0.84 filtered**).
+
+**None of this has been heard through a speaker.** See
+[`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md) §7.
+
 ## Open question
 
 The one unresolved hardware detail is how fast the phase generator runs. MAME
@@ -215,8 +265,10 @@ python3 sim/tools/make_mra.py <path-to>/segag80v.cpp mra
 so what the MRA assembles on hardware is exactly what the simulation boots:
 
 ```
-0x0000-0xBFFF   48K program ROM
-0xC000-0xC3FF   s-c.xyt-u39 sin/cos PROM
+0x00000-0x0BFFF   48K program ROM
+0x0C000-0x0C3FF   s-c.xyt-u39 sin/cos PROM
+0x0C400-0x0CBFF   speech board 8035 program      (Space Fury, Zektor, Star Trek)
+0x0CC00-0x10BFF   speech board LPC data
 ```
 
 MRA `index 1` carries a single game-identifier byte; `rtl/sega_game_pkg.sv`
@@ -231,19 +283,40 @@ rtl/xy/sega_xy.sv        vector generator (X-Y Control + X-Y Timing boards)
 rtl/xy/sega_xy_top.sv    + vector RAM and sin/cos PROM
 rtl/sega_ports.sv        LS253 input matrix, spinner, elim4 demux, multiplier
 rtl/segag80v_cpu.sv      Z80, memory/IO map, wait states, interrupt chain
-rtl/segag80v.sv          machine: CPU + X-Y + program ROM
+rtl/segag80v.sv          machine: CPU + X-Y + ROM + all four sound boards
 rtl/sega_video.sv        mode timing, coordinate map, vfb_top
 rtl/sega_geometry.sv     vector field -> framebuffer
 rtl/sega_inputs.sv       control panel wiring
 rtl/sega_game_pkg.sv     per-game configuration from the MRA id byte
+rtl/sound/sega_ay.sv         Zektor AY-3-8912 (jt49), DC-blocked
+rtl/sound/sega_speech.sv     speech board: 8035 + SP0250
+rtl/sound/sp0250.sv          LPC synthesiser, bit-exact
+rtl/sound/speech_filter.sv   speech board output filter
+rtl/sound/sega_usb.sv        Universal Sound Board: 8035 + timers + noise
+rtl/sound/usb_timer.sv       8253 PIT      usb_noise.sv   MM5837
+rtl/sound/usb_filter.sv      USB analog chain, multiplier-free
+rtl/sound/sega_discrete.sv   discrete boards + discrete_blocks.sv
 Arcade-SegaG80V.sv       MiSTer top level
 mra/                     one MRA per romset
 rtl/videodr0me_fb/       vendored renderer — do not edit, see Research/
-rtl/{tv80,i8035,jt49}/   vendored CPU and sound cores
-sim/golden/              MAME-derived reference model
+rtl/{tv80,i8035,tv48,jt49}/  vendored CPU and sound cores
+sim/golden/              MAME-derived reference models
 sim/tb/                  Verilator benches
+docs/                    hardware reference, research, audio notes
 Research/                pinned upstream commits, transcription notes
+HARDWARE-CHECKS.md       what still needs eyes and ears on real hardware
 ```
+
+## Documentation
+
+| File | What it is |
+|---|---|
+| [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md) | **start here for a hardware session** — what cannot be checked in simulation |
+| [`docs/01-hardware-reference.md`](docs/01-hardware-reference.md) | the G-80 X-Y boards: memory map, vector generator, timing |
+| [`docs/03-audio-plan.md`](docs/03-audio-plan.md) | all four sound boards, in detail |
+| [`docs/00-research-summary.md`](docs/00-research-summary.md) | the original survey: prior art, sources, scope |
+| [`Research/colour-census.md`](Research/colour-census.md) | the data behind the 6-bit colour decision |
+| [`Research/vendored-sources.md`](Research/vendored-sources.md) | pinned upstream commits and every local change to them |
 
 ## Credits
 
@@ -255,7 +328,9 @@ Research/                pinned upstream commits, transcription notes
   in `segag80v_v.cpp`, without which this would be a much longer project.
 - **derpyder** — the Tempest core, which showed how to graft a non-Atari game
   onto the chassis.
-- **JimmyStones** — `i8035`, needed for both Sega sound-board CPUs.
+- **JimmyStones** — `i8035`, and **Arnim Laeuger's T48** core underneath it,
+  needed for both Sega sound-board CPUs.
+- **Jose Tejada (jotego)** — `jt49`, the AY-3-8912 used by Zektor.
 - **Mark Jenison** — the Sega/Gremlin X-Y FAQ.
 
 ## Licence

@@ -1,16 +1,21 @@
-# Audio implementation plan
+# Audio — the four sound boards
 
-Four independent subsystems, sequenced by impact per unit of work. The standard
-to hold to is the one the rest of this core is built on and that Videodr0me set
-for his own audio: **model the hardware, verify against MAME, don't approximate
-where the real thing is knowable.**
+> **All four are implemented.** This started as a plan and is now a record of
+> what was built and how far each part can be trusted. Nothing here has been
+> heard through a speaker; see [`../HARDWARE-CHECKS.md`](../HARDWARE-CHECKS.md)
+> §7 for what to listen for.
+
+The standard held to is the one the rest of this core is built on and that
+Videodr0me set for his own audio: **model the hardware, verify against MAME,
+don't approximate where the real thing is knowable.** Three of the four boards
+meet it. The discrete boards cannot, and say so.
 
 | # | Subsystem | Games | Status |
 |---|---|---|---|
-| 1 | AY-3-8912 | Zektor | **done** |
-| 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | **done**, unheard on hardware |
-| 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | **done**, unheard on hardware |
-| 4 | Discrete boards | Eliminator, Space Fury, Zektor | last, open-ended |
+| 1 | AY-3-8912 | Zektor | **done** — jt49, DC-blocked |
+| 2 | Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | **done** — SP0250 bit-exact, output filter added |
+| 3 | Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | **done** — 8253/MM5837 bit-exact, chain 0.999587 vs MAME |
+| 4 | Discrete boards | Eliminator, Space Fury, Zektor | **done — behavioural, no reference to check against** |
 
 ---
 
@@ -280,11 +285,31 @@ Per MAME's `machine_config`, the two games differ:
 `cfg_speech` in `sega_game_pkg.sv` picks between them so the mix never
 double-counts the board.
 
-## 4. Discrete boards — last
+## 4. Discrete boards — done, but behavioural
+
+**Implemented in `rtl/sound/sega_discrete.sv` and `discrete_blocks.sv`.**
 
 Eliminator, Space Fury and Zektor each have an analog sound board driven by
 latches at `$3E/$3F`. MAME models them as netlists: `nl_elim.cpp` is 1227 lines
 (and also carries Zektor's), `nl_spacfury.cpp` 1106.
+
+There is no simplified MAME model to port and nothing to diff against, so each
+channel is a behavioural voice — an envelope times an oscillator or the shared
+MM5837 noise, through a one-pole filter. **Read every envelope time and pitch
+below as an estimate.** What *is* faithful:
+
+* the bit-to-sound map, from the netlist `ALIAS` lines (tabulated below);
+* the latch bits being **active low** — the games park `$3E/$3F` at `$FF` and
+  pull a bit low to trigger. MAME hides this by passing the raw bit into the
+  netlist and letting the CD4011 stages invert it. Backwards, every voice turns
+  on at once;
+* the Eliminator/Zektor **final mixer weights**, read off Sega drawing 800-3174
+  rev B sheet 8 — U9 is a TL082 inverting summer with Rf = 10K, so each source's
+  gain is 10K/Rin. Skitter and enemy ship land 20 dB below everything else,
+  which the netlist does not make obvious;
+* the noise source being an MM5837, confirmed by the same drawing.
+
+Space Fury's mixer has not been extracted; its weights are still guesses.
 
 The trigger lines are named in the netlists, so the scope is known exactly:
 
@@ -336,10 +361,25 @@ under a carefully arbitrated scheme. Settle this before committing.
 
 ---
 
-## Mixing
+## Mixing — as built
 
-`AUDIO_L/R` currently carry only the AY, scaled with headroom. As each board
-lands, mix per MAME's `add_route` weights:
+Every board is scaled so its own peaks land between -9 and -16 dBFS, then summed
+at full weight with saturation in `Arcade-SegaG80V.sv`. Measured over 30 s of
+gameplay via `make audio`:
+
+| Game | Levels |
+|---|---|
+| Eliminator | discrete -12.1 dBFS |
+| Space Fury | speech -14.2, discrete -10.3 |
+| Zektor | AY -12.1, speech -13.6, discrete -12.0 |
+| Tac/Scan | USB -9.4 |
+| Star Trek | speech -15.8 (the USB arrives inside it) |
+
+Within Eliminator and Zektor the *relative* weights are real (drawing 800-3174
+sheet 8). The level of each board against the others is judgement and needs an
+ear.
+
+MAME's own `add_route` weights, for reference:
 
 - Eliminator: discrete only, output scale 0.15
 - Space Fury: discrete (scale 2.0) into the speech board, then to the speaker

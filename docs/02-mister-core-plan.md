@@ -1,3 +1,26 @@
+# OBSOLETE — build plan, all phases complete
+
+> **This file is queued for deletion and should not be relied on.**
+>
+> It was the forward-looking build plan written on 2026-08-03, with phases 0-7
+> covering everything from the colour decision to audio. **All seven phases are
+> finished**, so every schedule, effort estimate and "next step" in it is now
+> wrong. It is kept only until someone confirms nothing in it is still wanted.
+>
+> Where to look instead:
+>
+> | For | See |
+> |---|---|
+> | current state | [`../README.md`](../README.md) |
+> | what still needs real hardware | [`../HARDWARE-CHECKS.md`](../HARDWARE-CHECKS.md) |
+> | the G-80 boards themselves | [`01-hardware-reference.md`](01-hardware-reference.md) |
+> | the sound boards | [`03-audio-plan.md`](03-audio-plan.md) |
+> | the 6-bit colour repack (was §3) | [`../Research/colour-census.md`](../Research/colour-census.md) and [`../Research/vendored-sources.md`](../Research/vendored-sources.md) |
+>
+> Nothing else in the repository links here any more.
+
+---
+
 # Plan: `Arcade-SegaG80V_MiSTer`
 
 > **Note on `refs/` paths.** This document cites local research material

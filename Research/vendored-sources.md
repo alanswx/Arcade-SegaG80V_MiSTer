@@ -33,9 +33,9 @@ Framebuffer pixel packing (`vfb_rasterizer.sv` → `vfb_readout.sv`):
 pixel_data[15:0] = { rgb[2:0], draw_idx[3:0], 1'b0, z[7:0] }
 ```
 
-One spare bit at [8]. Sega needs 6-bit colour (2 bits/gun). See
-`docs/02-mister-core-plan.md` §3 for the repack, and Phase 0 for the census that
-decides whether the repack is needed at all.
+One spare bit at [8]. Sega needs 6-bit colour (2 bits/gun). The repack that
+buys it is recorded under "Local modifications" below; the census that decided
+it was necessary is in [`colour-census.md`](colour-census.md).
 
 ## Renderer: migrated from Asteroids to Major Havoc
 

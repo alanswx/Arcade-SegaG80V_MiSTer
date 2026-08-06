@@ -10,6 +10,13 @@
 
 Date: 2026-08-03. All cited material is mirrored under `../refs/`.
 
+> **This is the original survey, kept as a record of what was known before any
+> code was written.** Its conclusions held up, but for the state of the core see
+> [`../README.md`](../README.md). Two open questions it raises were answered
+> later: the colour question by [`../Research/colour-census.md`](../Research/colour-census.md)
+> (6-bit repack was necessary), and every "write it" in §5 has since been
+> written.
+
 ---
 
 ## 1. Is anyone working on this?
@@ -122,6 +129,12 @@ I did not expect the schematics to be this complete, but they are.
 
 Everything is GPL-compatible (the Videodr0me cores are GPL-3.0/GPL-2.0+).
 
+**As built:** `tv80`, `i8035` (with Arnim Laeuger's T48 underneath) and `jt49`
+were all reused as expected. The 8253 and SP0250 were written from MAME and are
+bit-exact against it — `rtl/sound/usb_timer.sv` and `rtl/sound/sp0250.sv`. The
+MM5837 noise source and both analog chains were also written from scratch.
+**Hiscore save was not taken** and is still not implemented.
+
 ## 6. The one real design conflict
 
 Sega's colour is **2 bits per gun, 64 colours, binary intensity**. Atari's AVG is
@@ -130,7 +143,7 @@ pixel as `{rgb[2:0], draw_idx[3:0], spare, z[7:0]}` — verified identical in bo
 the Star Wars and Asteroids copies — so there is exactly **one spare bit**, and
 6-bit colour needs three more.
 
-Two ways out, detailed in the plan:
+Two ways out:
 
 1. Repack to `{rgb[5:0], draw_idx[3:0], z[5:0]}`. Sega's intensity is binary, so
    6 bits of Z headroom is generous. Touches `vfb_rasterizer`, `vfb_readout` and
@@ -142,6 +155,10 @@ Two ways out, detailed in the plan:
 
 Do (2) before committing to (1). It is an afternoon of work and may save the only
 invasive change in the project.
+
+**Answered:** the census was run over 576 real display lists and (1) was
+necessary — 42 of the 64 colours are non-proportional, covering 22% of beam-on
+samples. See [`../Research/colour-census.md`](../Research/colour-census.md).
 
 ## Sources
 

@@ -17,6 +17,7 @@ Do not re-verify unless something regressed.
 |---|---|
 | 2026-08-03 | All five games boot, render attract screens, DE10-Nano |
 | 2026-08-04 | Havoc renderer migration, 125 MHz PLL, new clock topology |
+| 2026-08-05 | Controls, DIP menus and game startup (TV80 refresh register) |
 
 ### Resource note
 
@@ -65,10 +66,15 @@ and compare. Whichever looks right, record it here.
 
 ### 4. Controls
 
-Transcribed from MAME's `INPUT_PORTS_START` blocks but only Eliminator has ever
-been played. **Check per game:** buttons do what the label says, both players
-work, and for Eliminator 4-player that players 3 and 4 respond (they come
-through a demux on the `$F8` select latch, which is the fiddliest part).
+Transcribed from MAME's `INPUT_PORTS_START` blocks, reworked on 2026-08-05
+along with the MRA control metadata and DIP menus. `make boot` now exercises
+both the `$FC` spinner-game Start path and the `$D5D4` matrix path and checks
+that Start consumes a credit, so the wiring is proven in simulation.
+
+**Check per game:** buttons do what the label says, both players work, and for
+Eliminator 4-player that players 3 and 4 respond — they come through a demux on
+the `$F8` select latch, which is the fiddliest part and the only one the boot
+bench does not cover.
 
 ### 5. Spinner — never exercised at all
 
@@ -87,7 +93,7 @@ The only game with swapped axes (`SWAP_XY | FLIP_X | FLIP_Y`), rendered into a
 portrait 832×1024 target. **Check:** it is rotated the right way and fills the
 screen sensibly at 720p and 1080p.
 
-### 7a. FOUND: the t48 core ignored T0 (fixed)
+### 7a. Fixed: the t48 core ignored T0
 
 `rtl/tv48/t48_core.v` passed both T0 and T1 into the conditional-branch unit
 through a std_logic table lookup that the VHDL-to-Verilog translation gets
@@ -196,92 +202,35 @@ a schematic, so the module has a `C10_TENTH` parameter that moves it to
 unfiltered to 0.84 filtered, so 167 Hz is defensible — but if it sounds muffled
 on hardware, try the parameter before assuming the filter is wrong.
 
-### 7d. Audio — what is still unheard on hardware
+### 7e. Audio — what to listen for
 
-**2026-08-04: neither sound board produces audio in the assembled machine.**
-Every component passes its bench (17/17, including bit-exact 8253, MM5837 and
-SP0250), but `make audio` — which runs a real game through `segag80v` and
-records the result — shows silence. That is a component-versus-system gap, and
-it is worth stating plainly because the previous version of this file claimed
-the audio was verified.
+Everything below works in simulation and **none of it has been through a
+speaker**. That is the whole point of this section.
 
-What `make audio` establishes, on Space Fury:
+- **Eliminator** makes sound at all. It was completely silent until the
+  discrete board landed, so this is the clearest pass/fail on the board.
+- **Space Fury speaks** — *"So, a creature for my amusement. Prepare for
+  battle!"* — and its discrete board plays under it.
+- **Zektor** has all three: AY music, speech, and discrete effects.
+- **Tac/Scan makes music.** The Universal Sound Board's only outing where
+  nothing else can mask it; Star Trek has the speech board too.
+- **Star Trek** speaks, with the USB arriving through the speech board's CD4053.
+- Nothing clicks, buzzes, or clips.
 
-| Observation | Meaning |
-|---|---|
-| 799 frames drawn in 20 s, 12.8 M beam-on samples | the machine and video are fine |
-| Z80 writes `$38` <- 3F, BF, 0F, 8F, 0E, 8E and `$3B` <- 28 | the game *does* ask for three words, and control bit 3 gates speech on |
-| speech 8035 executes from 0x000 and its opcodes match the ROM | the 8035 core runs the right program |
-| 3540 SP0250 writes / 236 DRQ edges = exactly 15:1 | the frame-feed loop works |
-| every byte written to the SP0250 is 00 | it is feeding silence frames |
-| T0 rises at t=53.2 ms and stays high | the request handshake reaches the board |
-| P1.7 never goes low; **0 MOVX reads of the speech data ROM** | the 8035 never acknowledges and never fetches speech data |
+**Balance is the thing most likely to be wrong.** Every board is scaled to peak
+between -9 and -16 dBFS and they are summed at full weight with saturation in
+`Arcade-SegaG80V.sv`. Within Eliminator and Zektor the *relative* weights are
+real — read off drawing 800-3174 sheet 8 — but the level of each board against
+the others is judgement, and so is all of Space Fury's discrete mix.
 
-So the speech 8035 sees the pending word and never acts on it. The Universal
-Sound Board is the same story from the other end: Tac/Scan issues only 2 `$3F`
-commands in 20 s and the recorded output has 42 non-zero samples in 960000 —
-isolated clicks, not sound.
+If a board is silent rather than mis-levelled, the plumbing is already proven in
+simulation, so suspect the mix or the OSD before the board: `make audio`
+records each source separately and will show whether the board itself is
+producing anything.
 
-Things already ruled out, so nobody repeats them: the T0 rising-edge rule, the
-P1 readback (`latch & 0x7F`, bit 7 = 0), the INT polarity and its power-on
-state, the INT pulse width (6.78 us against a 4.81 us instruction cycle), the
-DIP defaults (SW1 must be 0x8D — bit 1 is Demo Sounds and MAME defaults it
-*on*), the 8035 clock (MAME feeds the crystal and divides by 15 internally,
-which is what `t48` expects), and the speech ROM contents in the image.
-
-Four real bugs were found and fixed on the way, none of which was the cause:
-P2 is now latched at ALE alongside the low address byte (reading it live during
-PSEN returns the written P2 register, not PC[11:8]); the write data bus is
-sampled during WR rather than at its rising edge; T0 clears on the falling edge
-of P1.7 rather than on its level; and the speech latch resets to 0x80 so INT is
-not asserted from power-on.
-
-The remaining suspect is the `t48`/`i8035` integration — both boards fail the
-same way, and both are the only places this core uses that CPU.
-
-### Previously written, still true as far as it goes
-
-Implemented and verified in simulation, **never played through a speaker**:
-
-| Board | Games | Verification |
-|---|---|---|
-| AY-3-8912 | Zektor | jt49, standard part |
-| Speech board (8035 + SP0250) | Space Fury, Zektor, Star Trek | SP0250 bit-exact vs MAME |
-| Universal Sound Board (8035 + 3× 8253) | Tac/Scan, Star Trek | 8253 and MM5837 bit-exact; analog chain correlates 1.00000 with MAME |
-
-**Not** implemented: the discrete sound boards (Eliminator, Space Fury, Zektor),
-so silence from those is expected rather than a bug.
-
-**Check:**
-- Zektor makes music and effects.
-- **Space Fury speaks.** The SP0250 is bit-exact against MAME in simulation but
-  the 8035 has never been seen executing the speech program. The attract line
-  is *"So, a creature for my amusement. Prepare for battle!"*.
-- Star Trek and Zektor also speak.
-- **Tac/Scan makes music.** This is the Universal Sound Board's only outing
-  where nothing else can mask it — Star Trek has the speech board too.
-- Nothing clicks, buzzes or clips.
-
-If speech is silent, the likely suspects in order: the `$38`/`$3B` write
-strobes, the T0/INT handshake off the latch's bit 7, and the speech-data ROM
-paging through P2. If it is present but garbled, suspect the ROM layout or the
-data-ROM bank rather than the SP0250 itself.
-
-If the **USB** is silent, note that the boot bench already proves a lot of the
-chain: Tac/Scan writes all 4096 bytes of the 8035 program through the scrambled
-`$D000` window, `/LOAD` releases the 8035, and the board produces audio. So
-suspect the *level*, not the plumbing — `usb_filter.sv` deliberately carries
-12 dB of headroom (MAME's nominal 1.0 maps to a quarter of full scale, because
-MAME's own value for this chain peaks at 3.26), and `Arcade-SegaG80V.sv` halves
-it again in the mix. If it is present but too quiet, raise it there rather than
-inside the filter.
-
-**Level balance between boards is a guess and needs an ear.** The mix in
-`Arcade-SegaG80V.sv` is `audio_ay + (audio_speech >>> 1) + (audio_usb >>> 1)`.
-Nothing in simulation can tell you whether those relative weights are right.
-
-**MRAs must be regenerated** for this — the ROM image grew from 0xC400 to
-0x10C00 bytes to carry the speech ROMs. Old MRAs will load a truncated image.
+**MRAs must be regenerated** if you are coming from an old checkout — the ROM
+image grew from 0xC400 to 0x10C00 bytes to carry the speech ROMs, and an old
+MRA will load a truncated image.
 
 ---
 

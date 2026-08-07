@@ -314,6 +314,7 @@ HARDWARE-CHECKS.md       what still needs eyes and ears on real hardware
 | [`HARDWARE-CHECKS.md`](HARDWARE-CHECKS.md) | **start here for a hardware session** — what cannot be checked in simulation |
 | [`docs/01-hardware-reference.md`](docs/01-hardware-reference.md) | the G-80 X-Y boards: memory map, vector generator, timing |
 | [`docs/03-audio-plan.md`](docs/03-audio-plan.md) | all four sound boards, in detail |
+| [`docs/04-component-catalog.md`](docs/04-component-catalog.md) | component inventory, upstream pins, and upgrade recommendations |
 | [`docs/00-research-summary.md`](docs/00-research-summary.md) | the original survey: prior art, sources, scope |
 | [`Research/colour-census.md`](Research/colour-census.md) | the data behind the 6-bit colour decision |
 | [`Research/vendored-sources.md`](Research/vendored-sources.md) | pinned upstream commits and every local change to them |
